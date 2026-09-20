@@ -1,26 +1,744 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Two themes for the operator surfaces, one fixed palette for the stage.
+ *
+ * The `--base-*` / `--ink-*` / `--gold*` ramp below never changes: it is the
+ * stage identity, and the stage is always dark because it is pointed at a
+ * projector in a dim room. The shadcn semantic tokens (`--background`,
+ * `--card`, `--border`, …) are what flip between light and dark, so setup and
+ * any other operator screen follow the theme by using those.
+ *
+ * Practical consequence: on operator surfaces reach for `bg-card`,
+ * `text-foreground`, `text-muted-foreground`, `border-border` and
+ * `text-gold-ui`. Reaching for `bg-base-800` or `text-ink-100` there pins that
+ * element to the dark palette and it will not survive a theme switch.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ---- Stage palette. Fixed in both themes. --------------------------- */
+
+  /* Deep neutral base, not black — black on a projector crushes to mud and
+     kills the sense of depth behind the reel. */
+  --base-900: #0b0e14;
+  --base-800: #121722;
+  --base-700: #1b2230;
+  --base-600: #273040;
+  --ink-100: #f4f6fb;
+  --ink-300: #c3cbdb;
+  --ink-500: #8592aa;
+
+  /* One accent, three fixed intensities. */
+  --gold-bright: #f2d68a;
+  --gold: #d4af37;
+  --gold-deep: #8a6d1f;
+
+  /* ---- Light theme (default) ------------------------------------------ */
+
+  /* The gold the operator surfaces use for text and icons. The stage gold is
+     tuned for glowing on near-black and turns to mud on white, so the light
+     theme darkens it rather than reusing it. */
+  --gold-ui: #8a6d1f;
+  --gold-ui-strong: #6b5316;
+
+  --background: #f6f7fa;
+  --foreground: #11151d;
+  --card: #ffffff;
+  --card-foreground: #11151d;
+  --popover: #ffffff;
+  --popover-foreground: #11151d;
+  --primary: #c9a227;
+  --primary-foreground: #1a1408;
+  --secondary: #eceef4;
+  --secondary-foreground: #11151d;
+  --muted: #eceef4;
+  --muted-foreground: #5d6880;
+  --accent: #eceef4;
+  --accent-foreground: #11151d;
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: #ffffff;
+  --border: #dfe3ec;
+  --input: #dfe3ec;
+  --ring: #b08d1f;
+  --radius: 0.75rem;
+
+  --chart-1: #c9a227;
+  --chart-2: #8a6d1f;
+  --chart-3: #5d6880;
+  --chart-4: #9aa4bb;
+  --chart-5: #c3cbdb;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #11151d;
+  --sidebar-primary: #c9a227;
+  --sidebar-primary-foreground: #1a1408;
+  --sidebar-accent: #eceef4;
+  --sidebar-accent-foreground: #11151d;
+  --sidebar-border: #dfe3ec;
+  --sidebar-ring: #b08d1f;
+}
+
+/* ---- Dark theme ---------------------------------------------------------
+ *
+ * Also what the stage pins itself to, regardless of the operator's choice.
+ */
+.dark {
+  --gold-ui: #d4af37;
+  --gold-ui-strong: #f2d68a;
+
+  --background: var(--base-900);
+  --foreground: var(--ink-100);
+  --card: var(--base-800);
+  --card-foreground: var(--ink-100);
+  --popover: var(--base-800);
+  --popover-foreground: var(--ink-100);
+  --primary: var(--gold);
+  --primary-foreground: var(--base-900);
+  --secondary: var(--base-700);
+  --secondary-foreground: var(--ink-100);
+  --muted: var(--base-700);
+  --muted-foreground: var(--ink-500);
+  --accent: var(--base-700);
+  --accent-foreground: var(--ink-100);
+  --destructive: oklch(0.58 0.19 25);
+  --destructive-foreground: var(--ink-100);
+  --border: var(--base-600);
+  --input: var(--base-600);
+  --ring: var(--gold);
+
+  --chart-1: var(--gold);
+  --chart-2: var(--gold-bright);
+  --chart-3: var(--gold-deep);
+  --chart-4: var(--ink-300);
+  --chart-5: var(--ink-500);
+
+  --sidebar: var(--base-800);
+  --sidebar-foreground: var(--ink-100);
+  --sidebar-primary: var(--gold);
+  --sidebar-primary-foreground: var(--base-900);
+  --sidebar-accent: var(--base-700);
+  --sidebar-accent-foreground: var(--ink-100);
+  --sidebar-border: var(--base-600);
+  --sidebar-ring: var(--gold);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-base-900: var(--base-900);
+  --color-base-800: var(--base-800);
+  --color-base-700: var(--base-700);
+  --color-base-600: var(--base-600);
+  --color-ink-100: var(--ink-100);
+  --color-ink-300: var(--ink-300);
+  --color-ink-500: var(--ink-500);
+  --color-gold-bright: var(--gold-bright);
+  --color-gold: var(--gold);
+  --color-gold-deep: var(--gold-deep);
+  --color-gold-ui: var(--gold-ui);
+  --color-gold-ui-strong: var(--gold-ui-strong);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Khmer names must not fall back to a default that clips their diacritics. */
+:lang(km),
+.km {
+  font-family: "Noto Sans Khmer", var(--font-geist-sans), sans-serif;
+  line-height: 1.6;
+}
+
+/* ---- Setup surface ------------------------------------------------------ */
+
+/* A faint accent wash so the setup page reads as the same product as the
+   stage rather than a generic admin form. Static, no animation: this screen is
+   often left open on a second monitor for the whole event. */
+.setup-aura {
+  background:
+    radial-gradient(
+      60rem 30rem at 15% -10%,
+      rgb(201 162 39 / 0.14),
+      transparent 60%
+    ),
+    radial-gradient(
+      45rem 28rem at 100% 0%,
+      rgb(93 104 128 / 0.1),
+      transparent 60%
+    );
+}
+
+.dark .setup-aura {
+  background:
+    radial-gradient(
+      60rem 30rem at 15% -10%,
+      rgb(212 175 55 / 0.1),
+      transparent 60%
+    ),
+    radial-gradient(
+      45rem 28rem at 100% 0%,
+      rgb(122 152 214 / 0.07),
+      transparent 60%
+    );
+}
+
+/*
+ * The operator-surface eyebrow. `.stage-label` is sized for a projector at the
+ * back of a room and its font-size wins over a Tailwind text-* utility (it is
+ * an unlayered rule), so reaching for it on the setup page silently blows
+ * small labels up. This is the one to use there.
+ */
+.ui-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* Fades only the bottom edge, so the newest entry at the top stays at full
+   strength. reel-mask fades both ends, which is right for a spinning drum and
+   wrong for a list read newest-first. */
+.list-fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+}
+
+/* ---- Stage typography --------------------------------------------------- */
+
+.stage-name {
+  /* Bounded by viewport HEIGHT as well as width. Width alone overflowed the
+     fixed-height stage grid on short/wide projector outputs. */
+  font-size: clamp(2.25rem, min(10vw, 15vh), 9rem);
+  line-height: 0.95;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  /* One soft glow, not the nested shadow stack v2 used. */
+  text-shadow: 0 0 60px rgb(212 175 55 / 0.25);
+}
+
+.stage-label {
+  font-size: clamp(0.75rem, 1.2vw, 1rem);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
+
+/* ---- Reel --------------------------------------------------------------- */
+
+/*
+ * The drum is faked, not modelled. A true cylinder needs a rotateX plus
+ * translateZ per row and a per-frame angle update; this gets the same read
+ * from static overlays over a single translated track, so the spin stays one
+ * compositor-driven transform no matter how many names are loaded.
+ */
+.reel-drum {
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+}
+
+.reel-mask {
+  /* Fade the ends instead of stacking blurred overlay divs. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 18%,
+    #000 82%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 18%,
+    #000 82%,
+    transparent 100%
+  );
+}
+
+.reel-track {
+  will-change: transform, filter;
+}
+
+/* Barrel shading: dark at the lip, open in the middle. This is what sells the
+   curve — without it the strip reads as a flat list scrolling past. */
+.reel-barrel {
+  background: linear-gradient(
+    to bottom,
+    rgb(4 6 10 / 0.94) 0%,
+    rgb(4 6 10 / 0.6) 13%,
+    rgb(4 6 10 / 0) 33%,
+    rgb(4 6 10 / 0) 67%,
+    rgb(4 6 10 / 0.6) 87%,
+    rgb(4 6 10 / 0.94) 100%
+  );
+}
+
+/* A single soft glare band across the upper third, like light catching a
+   curved surface. */
+.reel-glare {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0) 0%,
+    rgb(255 255 255 / 0.055) 24%,
+    rgb(255 255 255 / 0.02) 40%,
+    rgb(255 255 255 / 0) 54%
+  );
+}
+
+.reel-payline {
+  box-shadow:
+    inset 0 1px 0 rgb(212 175 55 / 0.7),
+    inset 0 -1px 0 rgb(212 175 55 / 0.7),
+    0 0 40px rgb(212 175 55 / 0.14);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(212 175 55 / 0.09),
+    transparent
+  );
+}
+
+/*
+ * Drum rumble while the reel runs.
+ *
+ * Sub-pixel and fast: this is machinery vibrating, not the screen wobbling. It
+ * animates the housing, never the track — the track owns the spin transform,
+ * and putting a second animation on the same property there would fight it.
+ */
+@keyframes reel-rumble {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  20% {
+    transform: translate3d(-1.4px, 0.8px, 0);
+  }
+  40% {
+    transform: translate3d(1.2px, -1.1px, 0);
+  }
+  60% {
+    transform: translate3d(-0.9px, -0.7px, 0);
+  }
+  80% {
+    transform: translate3d(1.3px, 1px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.reel-rumbling {
+  animation: reel-rumble 130ms linear infinite;
+}
+
+/* The landing thunk: the drum drops onto the stop and rebounds. Paired with
+   the track overshoot, this is what makes the stop feel mechanical. */
+@keyframes reel-impact {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  18% {
+    transform: translate3d(0, 8px, 0) scale(1.014);
+  }
+  46% {
+    transform: translate3d(0, -3.5px, 0) scale(0.996);
+  }
+  72% {
+    transform: translate3d(0, 1.5px, 0) scale(1.002);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.reel-impact {
+  animation: reel-impact 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The winner snaps into focus rather than just being the row that stopped. */
+@keyframes winner-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  55% {
+    transform: scale(1.07);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.winner-pop {
+  animation: winner-pop 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* A single band of light crossing the payline at the moment of the stop. */
+@keyframes payline-sweep {
+  from {
+    transform: translate3d(-130%, 0, 0);
+  }
+  to {
+    transform: translate3d(130%, 0, 0);
+  }
+}
+
+.payline-sweep {
+  animation: payline-sweep 620ms cubic-bezier(0.3, 0, 0.2, 1) both;
+}
+
+/* The payline brightens as the reel settles, so the landing has a beat. */
+@keyframes payline-lock {
+  0% {
+    opacity: 0.5;
+    transform: scaleX(0.97);
+  }
+  55% {
+    opacity: 1;
+    transform: scaleX(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.payline-lock {
+  animation: payline-lock 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---- Cabinet ------------------------------------------------------------
+ *
+ * The marquee bulbs are what make this read as a machine rather than a list
+ * in a box. Sixteen per strip, fixed, each driven by nothing but `opacity` and
+ * `box-shadow` on a 6px dot — the chase is a staggered `animation-delay`, not
+ * anything that recalculates per frame.
+ */
+.reel-bulb {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 9999px;
+  background: var(--gold-deep);
+  opacity: 0.28;
+}
+
+/* Idle: a slow breath, so a stage waiting for the MC is never a dead screen. */
+.reel-drum .reel-bulb {
+  animation: bulb-breathe 3.4s ease-in-out infinite both;
+}
+
+/* Spinning: a chase running around the cabinet. */
+.reel-drum.is-spinning .reel-bulb {
+  animation: bulb-chase 880ms linear infinite both;
+}
+
+/* Landed: every bulb strobes together, so the delays have to go. */
+.reel-drum.is-win .reel-bulb {
+  animation: bulb-strobe 240ms steps(1, end) 4 both;
+  animation-delay: 0ms !important;
+}
+
+@keyframes bulb-breathe {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 6px rgb(212 175 55 / 0.4);
+  }
+}
+
+@keyframes bulb-chase {
+  0% {
+    opacity: 0.18;
+  }
+  10% {
+    opacity: 1;
+    box-shadow: 0 0 10px 2px rgb(242 214 138 / 0.75);
+  }
+  38%,
+  100% {
+    opacity: 0.18;
+  }
+}
+
+@keyframes bulb-strobe {
+  0%,
+  49% {
+    opacity: 1;
+    box-shadow: 0 0 12px 3px rgb(242 214 138 / 0.9);
+  }
+  50%,
+  100% {
+    opacity: 0.12;
+  }
+}
+
+/* The cabinet lamp. Swells while the drum runs and flares on the stop —
+   opacity and transform only, so it composites. */
+.reel-bloom {
+  background: radial-gradient(
+    ellipse at center,
+    rgb(212 175 55 / 0.16),
+    transparent 62%
+  );
+  opacity: 0.45;
+  transform: scale(0.94);
+  transition:
+    opacity 600ms ease,
+    transform 600ms ease;
+}
+
+.reel-drum.is-spinning .reel-bloom {
+  opacity: 0.95;
+  transform: scale(1.08);
+}
+
+.reel-drum.is-win .reel-bloom {
+  opacity: 1;
+  transform: scale(1.16);
+  transition-duration: 180ms;
+}
+
+/* ---- Win flash ----------------------------------------------------------
+ *
+ * One frame of light across the whole projector at the moment of the stop.
+ * Short enough to read as a camera flash rather than a white-out.
+ */
+@keyframes win-flash {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.win-flash {
+  animation: win-flash 520ms ease-out both;
+}
+
+/* ---- Entrances ----------------------------------------------------------- */
+
+/* Plays once per mount. The newest winner is a new key, so only that row
+   animates; the rows already on the rail are untouched. */
+@keyframes rail-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.rail-enter {
+  animation: rail-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Keyed on the prize id, so switching prizes announces itself. */
+@keyframes prize-swap {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+    letter-spacing: 0.06em;
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    letter-spacing: normal;
+  }
+}
+
+.prize-swap {
+  animation: prize-swap 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---- Backdrop ----------------------------------------------------------- */
+
+/* Three transform-only layers. No backdrop-filter, no fixed attachment, no
+   fifty-six animated SVG nodes. */
+.backdrop-layer {
+  position: absolute;
+  inset: -30%;
+  border-radius: 9999px;
+  will-change: transform;
+  pointer-events: none;
+}
+
+@keyframes drift-a {
+  from {
+    transform: translate3d(-6%, -3%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(6%, 4%, 0) scale(1.12);
+  }
+}
+
+@keyframes drift-b {
+  from {
+    transform: translate3d(5%, 4%, 0) scale(1.08);
+  }
+  to {
+    transform: translate3d(-5%, -4%, 0) scale(0.96);
+  }
+}
+
+.drift-a {
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+
+.drift-b {
+  animation: drift-b 34s ease-in-out infinite alternate;
+}
+
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.reveal-rise {
+  animation: reveal-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* Honour the OS setting, and let the app force it from settings. */
+/*
+ * Motion opt-out.
+ *
+ * Both switches kill the same set, and the set is written once: the previous
+ * version listed thirteen classes under the media query but only three under
+ * the in-app toggle, so ticking "Force reduced motion" in settings still left
+ * sixteen marquee bulbs strobing on the projector.
+ *
+ * `data-motion="off"` on the stage is set when the OS asks for reduced motion
+ * OR the event overrides it, so it is the broader of the two; the media query
+ * stays as a safety net for anything rendered before React hydrates.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    .drift-a,
+    .drift-b,
+    .pulse-soft,
+    .reveal-rise,
+    .payline-lock,
+    .reel-rumbling,
+    .reel-impact,
+    .winner-pop,
+    .payline-sweep,
+    .reel-bulb,
+    .win-flash,
+    .rail-enter,
+    .prize-swap
+  ) {
+    animation: none !important;
+  }
+  .reel-bloom,
+  .reel-track {
+    transition: none !important;
+  }
+}
+
+[data-motion="off"] :is(
+    .drift-a,
+    .drift-b,
+    .pulse-soft,
+    .reveal-rise,
+    .payline-lock,
+    .reel-rumbling,
+    .reel-impact,
+    .winner-pop,
+    .payline-sweep,
+    .reel-bulb,
+    .win-flash,
+    .rail-enter,
+    .prize-swap
+  ) {
+  animation: none !important;
+}
+
+[data-motion="off"] :is(.reel-bloom, .reel-track) {
+  transition: none !important;
+}
+
+/* Keep focus visible on the operator surfaces; it is a keyboard-driven show. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
