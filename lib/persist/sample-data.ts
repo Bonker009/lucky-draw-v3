@@ -38,21 +38,57 @@ export function generateParticipants(count: number): Participant[] {
   }));
 }
 
-export const SAMPLE_PRIZES: Omit<Prize, "id">[] = [
-  { name: "Grand Prize — Motorbike", quantity: 1 },
-  { name: "Second Prize — Smartphone", quantity: 3 },
-  { name: "Third Prize — Headphones", quantity: 10 },
-  { name: "Consolation — Gift Voucher", quantity: 25 },
+export const SAMPLE_PRIZES: (Omit<Prize, "id"> & { photo: string })[] = [
+  { name: "Grand Prize — Motorbike", quantity: 1, photo: "/sample-prizes/motorbike.jpg" },
+  { name: "Second Prize — Smartphone", quantity: 3, photo: "/sample-prizes/smartphone.jpg" },
+  { name: "Third Prize — Headphones", quantity: 10, photo: "/sample-prizes/headphones.jpg" },
+  { name: "Consolation — Gift Voucher", quantity: 25, photo: "/sample-prizes/gift.jpg" },
 ];
+
+/**
+ * Store the bundled sample photos as image assets, in `SAMPLE_PRIZES` order.
+ *
+ * Real photos rather than empty tiles, because the sample event exists to
+ * rehearse the show — and the photo session, the one screen that shows prize
+ * art, looks broken with nothing in it. They go through `storeImage` exactly
+ * like an operator's upload, so the rehearsal exercises the real path.
+ *
+ * A photo that fails to load (served from somewhere without `public/`) just
+ * leaves that prize without an image, as before — a demo must never fail to
+ * load over artwork. Licences: `public/sample-prizes/CREDITS.md`.
+ */
+export async function loadSamplePrizePhotos(
+  store: (file: File) => Promise<string>,
+): Promise<(string | undefined)[]> {
+  return Promise.all(
+    SAMPLE_PRIZES.map(async ({ photo }) => {
+      try {
+        const res = await fetch(photo);
+        if (!res.ok) return undefined;
+        const blob = await res.blob();
+        const name = photo.split("/").pop() ?? "prize.jpg";
+        return await store(new File([blob], name, { type: blob.type || "image/jpeg" }));
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+}
 
 /**
  * A complete, ready-to-run demo event: roster, prizes, order and a seed.
  * Pair it with rehearsal mode to practise the whole show end to end.
+ * `photoIds` are asset ids from `loadSamplePrizePhotos`, in prize order.
  */
-export function sampleEventEvents(participantCount = 250): DrawEvent[] {
-  const prizes: Prize[] = SAMPLE_PRIZES.map((p, i) => ({
-    ...p,
+export function sampleEventEvents(
+  participantCount = 250,
+  photoIds: (string | undefined)[] = [],
+): DrawEvent[] {
+  const prizes: Prize[] = SAMPLE_PRIZES.map(({ name, quantity }, i) => ({
+    name,
+    quantity,
     id: `demo-prize-${i}`,
+    ...(photoIds[i] ? { imageAssetId: photoIds[i] } : {}),
   }));
 
   return [

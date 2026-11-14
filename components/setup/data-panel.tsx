@@ -23,7 +23,11 @@ import {
   importBundle,
   type Bundle,
 } from "@/lib/persist/backup";
-import { sampleEventEvents } from "@/lib/persist/sample-data";
+import { storeImage } from "@/lib/persist/assets";
+import {
+  loadSamplePrizePhotos,
+  sampleEventEvents,
+} from "@/lib/persist/sample-data";
 import { useEventStore } from "@/lib/store/event-store";
 
 export function DataPanel() {
@@ -165,7 +169,8 @@ export function DataPanel() {
                 }
                 const capped = Math.min(count, 20000);
                 try {
-                  await commit(sampleEventEvents(capped));
+                  const photos = await loadSamplePrizePhotos(storeImage);
+                  await commit(sampleEventEvents(capped, photos));
                   setStatus(
                     `Loaded a sample event with ${capped} participants. Start a rehearsal to try the whole show.`,
                   );
