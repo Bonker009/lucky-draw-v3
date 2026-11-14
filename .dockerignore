@@ -12,3 +12,5 @@ e2e
 npm-debug.log*
 Dockerfile
 .dockerignore
+compose.yaml
+docker-run.sh

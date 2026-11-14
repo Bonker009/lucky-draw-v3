@@ -1,0 +1,22 @@
+# Lucky Draw in a container: Next's standalone server serving the app.
+# The draw itself runs entirely in the browser (IndexedDB), so there is no
+# database or volume here — nothing to back up on the server side.
+#
+# Use ./docker-run.sh rather than calling this directly: it picks a free host
+# port and passes it in as HOST_PORT.
+name: lucky-draw
+
+services:
+  app:
+    build: .
+    image: lucky-draw:latest
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    restart: unless-stopped
+    healthcheck:
+      # busybox wget ships with node:alpine; curl does not.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
