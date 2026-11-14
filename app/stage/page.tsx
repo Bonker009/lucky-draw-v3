@@ -11,9 +11,8 @@ import {
 import Link from "next/link";
 import { Backdrop } from "@/components/stage/backdrop";
 import { Confetti, type ConfettiHandle } from "@/components/stage/confetti";
-import { Cabinet } from "@/components/stage/cabinet";
 import { PhotoCall, ROSTER_ALL } from "@/components/stage/photo-call";
-import { Reel } from "@/components/stage/reel";
+import { NameWall, type WallEntry } from "@/components/stage/name-wall";
 import { WinnersRail } from "@/components/stage/winners-rail";
 import { eligibleParticipants, remainingFor } from "@/lib/domain/selectors";
 import { useEngineSnapshot } from "@/lib/engine/use-draw-engine";
@@ -120,15 +119,6 @@ export default function StagePage() {
       : undefined;
   const rosterPrizeImageUrl = useAssetUrl(rosterPrize?.imageAssetId);
 
-  // Everyone still in the running: the reel puts every one of them past the
-  // payline on each spin. Uncapped on purpose — a 300 cap meant that at a
-  // bigger event some people could never appear on the drum at all. Memoised
-  // on `state`, so it is rebuilt per commit, not per frame.
-  const poolNames = useMemo(
-    () => eligibleParticipants(state).map((p) => p.name),
-    [state],
-  );
-
   const spinning = snapshot.phase === "spinning";
   /*
    * The drum is never unmounted: the name it stops on IS the reveal, so it has
@@ -138,9 +128,24 @@ export default function StagePage() {
    * whichever one is populated.
    */
   const reelTargetId = snapshot.revealed ?? snapshot.target;
-  const reelTargetName = reelTargetId
-    ? (state.participantsById.get(reelTargetId)?.name ?? null)
-    : null;
+
+  /*
+   * Everyone on the wall, in roster order. Uncapped on purpose — a cap meant
+   * that at a bigger event some people could never appear at all.
+   *
+   * The target is added back in: it is committed before the wall starts, so
+   * `eligibleParticipants` has already dropped it, and a wall without the
+   * winner on it would have nothing to land on. Ids, not names, so two people
+   * called the same thing stay two tiles. Memoised on `state`, so it is
+   * rebuilt per commit, not per frame.
+   */
+  const wallPool = useMemo<WallEntry[]>(() => {
+    const ids = new Set(eligibleParticipants(state).map((p) => p.id));
+    if (reelTargetId) ids.add(reelTargetId);
+    return state.participants
+      .filter((p) => ids.has(p.id))
+      .map((p) => ({ id: p.id, name: p.name }));
+  }, [state, reelTargetId]);
 
   /*
    * How many winners are committed but not yet on screen.
@@ -284,12 +289,14 @@ export default function StagePage() {
       {rehearsal || !isOwner ? (
         <div className="pointer-events-none absolute left-6 top-4 z-30 flex items-center gap-2">
           {rehearsal ? (
-            <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-medium text-gold-bright">
+            <span className="inline-flex items-center gap-2 rounded-full border border-ink-100/10 bg-ink-100/5 px-3.5 py-1.5 text-xs font-medium text-ink-300">
+              <span aria-hidden className="size-1.5 rounded-full bg-gold-bright" />
               Rehearsal — not saved
             </span>
           ) : null}
           {!isOwner ? (
-            <span className="rounded-full border border-ink-500/30 bg-base-800/80 px-3 py-1 text-xs text-ink-300">
+            <span className="inline-flex items-center gap-2 rounded-full border border-ink-100/10 bg-ink-100/5 px-3.5 py-1.5 text-xs font-medium text-ink-300">
+              <span aria-hidden className="size-1.5 rounded-full bg-ink-500" />
               Read-only — another window is in control
             </span>
           ) : null}
@@ -298,7 +305,7 @@ export default function StagePage() {
 
       {/* ---- Photo call -------------------------------------------------- */}
       {/* Takes the whole stage area: during a photo session the room is
-          looking for names, not at a reel. */}
+          looking for names, not at the wall. */}
       {rosterScope ? (
         <div className="relative z-20 flex min-h-0 flex-1">
           <PhotoCall
@@ -311,17 +318,15 @@ export default function StagePage() {
       ) : null}
 
       {/* ---- Stage ------------------------------------------------------ */}
-      {/* Hidden rather than unmounted: the reel keeps its DOM so returning
-          from a photo call does not rebuild the strip mid-show. The `hidden`
-          attribute would lose to Tailwind's `flex`, so the class does it. */}
+      {/* Hidden rather than unmounted: the wall keeps its canvas and its run,
+          so returning from a photo call does not restart a sweep mid-show.
+          The `hidden` attribute would lose to Tailwind's `flex`, so the class
+          does it. */}
       <div
         className={rosterScope ? "hidden" : "relative z-20 flex min-h-0"}
         aria-hidden={Boolean(rosterScope)}
       >
-        {/* Centred flex column, not a three-row grid: the cabinet is one
-            block now, and with the old [1fr_auto_1fr] rows it landed in the
-            top row and was clipped against the top of the viewport. */}
-        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-8">
+        <div className="relative flex min-h-0 flex-1 flex-col px-[3.3vw] pb-[5vh] pt-[7vh]">
           {/* A scrim local to the centre column. An uploaded background is
               usually a busy photo, and without this the names compete with it
               exactly where they most need to win. */}
@@ -330,7 +335,7 @@ export default function StagePage() {
             className="pointer-events-none absolute inset-0 -z-10"
             style={{
               background:
-                "radial-gradient(ellipse 55% 60% at 50% 50%, rgb(6 8 13 / 0.82), transparent 75%)",
+                "radial-gradient(ellipse 60% 65% at 50% 50%, rgb(6 6 7 / 0.82), transparent 78%)",
             }}
           />
 
@@ -339,20 +344,17 @@ export default function StagePage() {
               The e2e suite also waits on this heading as its ready signal. */}
           <h1 className="sr-only">{prize?.name ?? "Select a prize"}</h1>
 
-          {/* The machine: just the drum. */}
-          <div className="flex min-h-0 w-full items-center justify-center">
-            <Cabinet
-              drum={
-                <Reel
-                  pool={poolNames}
-                  target={reelTargetName}
-                  landed={snapshot.revealed !== null}
-                  durationMs={state.settings.spinDurationMs}
-                  quality={quality}
-                  reducedMotion={motionOff}
-                  onTick={sound.tick}
-                />
-              }
+          {/* The wall: everyone in the draw, knocked out in halves until the
+              committed winner is the one left. It reveals, it never picks. */}
+          <div className="flex min-h-0 w-full flex-1">
+            <NameWall
+              pool={wallPool}
+              targetId={reelTargetId}
+              landed={snapshot.revealed !== null}
+              durationMs={state.settings.spinDurationMs}
+              quality={quality}
+              reducedMotion={motionOff}
+              onTick={sound.tick}
             />
           </div>
 
@@ -402,7 +404,7 @@ export default function StagePage() {
           only the machine and the winners. Keyboard shortcuts work either
           way, and focus-within keeps it visible while tabbing through. */}
       <footer
-        className={`absolute inset-x-0 bottom-0 z-30 flex items-center justify-center gap-3 bg-gradient-to-t from-base-900/90 to-transparent px-8 pb-5 pt-10 transition-opacity duration-500 focus-within:pointer-events-auto focus-within:opacity-100 ${
+        className={`absolute bottom-6 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-ink-100/10 bg-base-800/80 p-1.5 shadow-[0_24px_60px_rgb(0_0_0/0.5)] backdrop-blur-xl transition-opacity duration-500 focus-within:pointer-events-auto focus-within:opacity-100 ${
           controlsVisible && !busy
             ? "opacity-100"
             : "pointer-events-none opacity-0"
@@ -423,7 +425,7 @@ export default function StagePage() {
             <StageButton shortcut="S" onClick={stop} disabled={!busy}>
               Stop
             </StageButton>
-            <span aria-hidden className="mx-1 h-6 w-px bg-ink-500/30" />
+            <span aria-hidden className="mx-1 h-6 w-px bg-ink-100/10" />
           </>
         )}
         {/* Photo call: the whole point is to get every winner of this prize
@@ -467,10 +469,12 @@ function StageButton({
         shortcut === "Space" ? "Space" : shortcut.toLowerCase()
       }
       {...props}
-      className={`inline-flex items-center gap-2.5 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 ${
+      // Ink, not gold: gold on the stage means "the winner", and a gold
+      // button sat right under the winner's gold name.
+      className={`inline-flex h-11 items-center gap-2.5 rounded-full px-5 text-sm font-medium transition-[background-color,scale] duration-150 ease-out enabled:active:scale-[0.96] disabled:opacity-40 motion-reduce:enabled:active:scale-100 ${
         primary
-          ? "bg-gold text-base-900 hover:bg-gold-bright"
-          : "border border-ink-500/40 text-ink-100 hover:border-ink-300/60 hover:bg-ink-100/5"
+          ? "bg-ink-100 text-base-900 hover:bg-white"
+          : "text-ink-300 hover:bg-ink-100/10 hover:text-ink-100"
       }`}
     >
       {children}
@@ -478,8 +482,8 @@ function StageButton({
         aria-hidden
         className={`rounded px-1.5 py-0.5 font-sans text-[0.65rem] leading-none ${
           primary
-            ? "bg-base-900/15 text-base-900/70"
-            : "bg-ink-100/10 text-ink-300"
+            ? "bg-base-900/10 text-base-900/60"
+            : "bg-ink-100/10 text-ink-500"
         }`}
       >
         {shortcut}

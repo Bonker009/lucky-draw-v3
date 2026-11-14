@@ -39,7 +39,7 @@ export function Backdrop({
         className={`backdrop-layer ${animate ? "drift-a" : ""}`}
         style={{
           background:
-            "radial-gradient(closest-side, rgb(212 175 55 / 0.16), transparent 70%)",
+            "radial-gradient(closest-side, rgb(255 255 255 / 0.035), transparent 70%)",
           left: "-20%",
           top: "-35%",
           width: "80%",
@@ -50,7 +50,7 @@ export function Backdrop({
         className={`backdrop-layer ${animate ? "drift-b" : ""}`}
         style={{
           background:
-            "radial-gradient(closest-side, rgb(120 150 255 / 0.10), transparent 70%)",
+            "radial-gradient(closest-side, rgb(255 255 255 / 0.025), transparent 70%)",
           right: "-25%",
           bottom: "-30%",
           left: "auto",
@@ -64,7 +64,7 @@ export function Backdrop({
           className={`backdrop-layer ${animate ? "drift-a" : ""}`}
           style={{
             background:
-              "radial-gradient(closest-side, rgb(242 214 138 / 0.07), transparent 70%)",
+              "radial-gradient(closest-side, rgb(242 214 138 / 0.04), transparent 70%)",
             left: "30%",
             top: "20%",
             width: "60%",
@@ -79,7 +79,7 @@ export function Backdrop({
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse at center, transparent 40%, rgb(11 14 20 / 0.75) 100%)",
+            "radial-gradient(ellipse at center, transparent 40%, rgb(6 6 7 / 0.75) 100%)",
         }}
       />
     </div>

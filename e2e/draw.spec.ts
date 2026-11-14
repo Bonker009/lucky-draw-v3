@@ -245,7 +245,7 @@ test.describe("durability", () => {
       bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 5 });
       bc.close();
     });
-    // Interrupt while the very first reel is still spinning.
+    // Interrupt while the very first draw is still running.
     await page.waitForTimeout(900);
     await page.reload();
     await expect(page.getByRole("heading", { name: "Prize" })).toBeVisible();
@@ -460,8 +460,17 @@ test.describe("control window", () => {
   });
 });
 
-test.describe("the reel", () => {
-  test("every eligible name goes past on a single spin", async ({ page }) => {
+test.describe("the wall", () => {
+  /*
+   * The wall reveals, it never picks: it has to end on exactly the winner the
+   * engine committed, with everyone eligible on it, and without putting that
+   * name into the page before the final round.
+   */
+  test("lands on the committed winner, with everyone on it", async ({
+    page,
+  }) => {
+    const nameOf = (id: string) => `Guest ${id.slice(1).padStart(4, "0")}`;
+
     await seedEvent(page, {
       participants: 60,
       prizes: [{ name: "Prize", quantity: 5 }],
@@ -470,31 +479,27 @@ test.describe("the reel", () => {
     await page.goto("/stage");
     await expect(page.getByRole("heading", { name: "Prize" })).toBeVisible();
 
-    // Record every label the drum shows, frame by frame, for one spin.
-    const seen = await page.evaluate(async () => {
-      const names = new Set<string>();
+    const wall = page.getByRole("img", { name: /names in the draw/ });
+    await expect(wall).toHaveAttribute("data-pool-size", "60");
+
+    await page.evaluate(() => {
       const bc = new BroadcastChannel("lucky-draw-v3");
       bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 1 });
       bc.close();
-      const until = performance.now() + 4000;
-      while (performance.now() < until) {
-        document
-          .querySelectorAll(".reel-track span")
-          .forEach((el) => el.textContent && names.add(el.textContent));
-        await new Promise((r) => requestAnimationFrame(r));
-      }
-      return [...names];
     });
 
-    const everyone = Array.from(
-      { length: 60 },
-      (_, i) => `Guest ${String(i).padStart(4, "0")}`,
-    );
-    const missing = everyone.filter((n) => !seen.includes(n));
-    expect(missing).toEqual([]);
+    // Mid-run: committed, but the name is nowhere in the page yet, and the
+    // winner is still counted on the wall rather than dropped from it.
+    await page.waitForTimeout(1000);
+    expect(await drawnWinnerIds(page)).toHaveLength(1);
+    await expect(page.getByTestId("wall-winner")).toHaveCount(0);
+    await expect(wall).toHaveAttribute("data-pool-size", "60");
 
-    // And the DOM stays flat: a window of rows, not one per participant.
-    expect(await page.locator(".reel-track > div").count()).toBeLessThan(10);
+    const winner = page.getByTestId("wall-winner");
+    await expect(winner).toBeVisible({ timeout: 20_000 });
+    const [id] = await drawnWinnerIds(page);
+    await expect(winner).toContainText(nameOf(id));
+    await expect(wall).toHaveAttribute("data-alive", "1");
   });
 });
 
@@ -574,7 +579,7 @@ test.describe("photo session", () => {
     await expect(photoButton).toBeEnabled({ timeout: 15_000 });
     await photoButton.click();
 
-    // The board replaces the reel and lists all three, numbered.
+    // The board replaces the wall and lists all three, numbered.
     const board = page.getByRole("region", { name: /Grand Prize/ });
     await expect(board).toBeVisible({ timeout: 10_000 });
     await expect(board.getByText("3 winners")).toBeVisible();

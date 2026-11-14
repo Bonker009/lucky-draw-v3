@@ -50,7 +50,7 @@ export function PresentationPanel() {
         <div className="grid gap-7 sm:grid-cols-2">
           <TimingSlider
             id="spin-duration"
-            label="Spin duration"
+            label="Draw duration"
             value={settings.spinDurationMs}
             min={1500}
             max={12000}
@@ -74,7 +74,7 @@ export function PresentationPanel() {
           <ToggleRow
             id="sound"
             label="Sound effects"
-            hint="A bed while the reel spins, plus a hit on each reveal."
+            hint="A tick on every knock-out round, plus a hit on each reveal."
             checked={settings.soundEnabled}
             onChange={(soundEnabled) => patch({ soundEnabled })}
           />

@@ -79,7 +79,7 @@ disturb a running draw. Its contract:
 - Cancellation is an `AbortSignal` read at await time, never a value captured in a closure, and
   every timer is registered so `stop()` can clear it (`pendingTimerCount` is exposed for tests).
 - `run()` rejects re-entry, so click + spacebar + remote command still produce exactly one draw.
-- **Commit first, reveal second** — `onCommit` resolves before the reel starts spinning toward a
+- **Commit first, reveal second** — `onCommit` resolves before the wall starts sweeping toward a
   name.
 
 `useStageController` is the single funnel for starting a draw (button, spacebar, remote command
@@ -102,8 +102,8 @@ helper too or every e2e test hangs on a page that never becomes ready.
 in `app/globals.css`.
 
 **Two palettes, and mixing them is the easy mistake.** `--base-*` / `--ink-*` / `--gold*` are the
-*stage* ramp and never change — the stage, the reel and the backdrop are built on them and are
-always dark because they point at a projector. The shadcn semantic tokens (`--background`,
+*stage* ramp and never change — the stage, the name wall and the backdrop are built on them and
+are always dark because they point at a projector. The shadcn semantic tokens (`--background`,
 `--card`, `--border`, `--muted-foreground`, …) are what flip between light and dark. So:
 
 - On operator surfaces (`/`, `/control`) use `bg-card`, `text-foreground`,
@@ -114,6 +114,10 @@ always dark because they point at a projector. The shadcn semantic tokens (`--ba
   class on its root; don't remove it.
 - `text-gold-ui` exists because the stage gold is tuned to glow on near-black and turns to mud on
   white; the light theme darkens it.
+- **Gold means "winner" (or "live on stage"), nothing else.** Primary buttons are ink
+  (`bg-primary` is near-black in light, near-white in dark), and switches, sliders, progress bars,
+  selected rows and status text are neutral. A gold control next to a gold winner name made both
+  read as equally important. If you reach for gold, ask whether it marks a winner.
 
 Theming is `next-themes` (`attribute="class"`, default dark, system enabled) via
 `components/theme-provider.tsx`, toggled by `components/theme-toggle.tsx`.
@@ -126,11 +130,12 @@ Stage sound effects are [soundcn](https://soundcn.xyz) assets (CC0, base64 insid
 still offline) in `lib/sounds/`, played by `lib/hooks/use-sound.ts`. Add one with
 `npx shadcn@latest add https://www.soundcn.xyz/r/<name>.json`, then move the file from `lib/` into
 `lib/sounds/` and point its import at `./sound-types`. Don't use soundcn's own `useSound` hook — it
-sets React state on every play, and the reel ticks ~20×/s via `Reel`'s `onTick`.
+sets React state on every play, which is wasted work for a fire-and-forget tick.
 
 Khmer text needs the `:lang(km)` / `.km` font rule to avoid clipped diacritics. `useFrameBudget`
 steps visual quality down when FPS drops; `usePrefersReducedMotion` shortens spins. Honor both in
-new stage visuals — the reel already drops its motion blur and its rumble below `full` quality.
+new stage visuals — the name wall drops its sweep band at `minimal` quality and under reduced
+motion.
 
 ### The stage (`app/stage/page.tsx`)
 
@@ -139,26 +144,27 @@ A fixed one-viewport grid: `h-dvh`, `overflow-hidden`, `grid-rows-[minmax(0,1fr)
 scroll, and an earlier `min-h-dvh` column put the Draw button below the fold once the winners
 rail filled up. Anything added here goes inside an existing row, and the stage row stays `min-h-0`.
 
-The audience sees only the cabinet and the winners rail — no top bar, no counts. The control bar
+The audience sees only the name wall and the winners rail — no top bar. The control bar
 is an absolutely positioned overlay that appears on pointer movement and fades after ~2.5s idle
 (keyboard shortcuts always work). The Rehearsal / Read-only pills are the one exception and only
 render when true.
 
-The centre column is a `grid-rows-[1fr_auto_1fr]`, which is what puts the drum on the exact
-optical centre. The prize is not shown on the stage (only an `sr-only` h1, which e2e waits on). Status (read-only,
-rehearsal) is compact pills overlaid top-left, not full-width banners — a banner row costs the reel
-vertical space permanently. `WinnersRail` scrolls inside itself and is capped.
+The prize is not shown on the stage (only an `sr-only` h1, which e2e waits on). Status
+(read-only, rehearsal) is compact pills overlaid top-left, not full-width banners — a banner row
+costs the wall vertical space permanently. `WinnersRail` scrolls inside itself and is capped, and
+holds its width even before the first winner (an empty spacer) — appearing on the first reveal
+used to reflow every column of the wall under the winner's name.
 
-There is no separate winner-reveal screen: **the reel is always mounted and the name it stops on
-is the reveal.** The stage passes `target={snapshot.revealed ?? snapshot.target}` so the drum
-holds the winner through the reveal hold, and `landed` to trigger the payoff styling.
+There is no separate winner-reveal screen: **the wall is always mounted and the last name
+standing is the reveal.** The stage passes `targetId={snapshot.revealed ?? snapshot.target}` so
+the wall holds the winner through the reveal hold, and `landed` to play the final round.
 
 **Nothing on the stage may render committed-but-unrevealed state.** The engine commits a winner
-*before* starting the drum towards them — that ordering is what makes "announced but never saved"
+*before* starting the wall towards them — that ordering is what makes "announced but never saved"
 impossible — so for the whole spin everything derived from `state` already knows the answer. The
-winners rail printed the name beside the reel while the audience watched it turn, and the
+winners rail printed the name beside the drum while the audience watched it turn, and the
 remaining count and pips gave it away too. `unrevealed` (in `app/stage/page.tsx`) is the count of
-such winners: always 0 or 1, and 1 only while the drum is actually running towards a target. Feed
+such winners: always 0 or 1, and 1 only while the wall is actually running towards a target. Feed
 any new audience-facing figure through it, the way `shownRemaining`, `eligible` and
 `WinnersRail`'s `hideCount` do. `e2e/draw.spec.ts` → "no spoilers" pins this down; it has been
 verified to fail when the adjustment is removed.
@@ -176,37 +182,38 @@ The remote may change only `LiveSettings` (timing, sound, motion) via `cmd:patch
 the stage runs through `sanitizeLiveSettings` before committing. Never the seed or prize order.
 
 An uploaded background is usually a busy photo, so it renders at low opacity under a radial scrim
-local to the centre column, and the drum housing is near-opaque with a backdrop blur. Names have
-to win against whatever someone uploaded.
+local to the centre column. Names have to win against whatever someone uploaded.
 
-### The reel (`components/stage/reel.tsx`)
+### The name wall (`components/stage/name-wall.tsx`)
 
-The spin is one Web Animations API animation on one node, in four phases (wind-up → run → brake →
-overshoot-and-settle), with motion blur keyframed alongside the transform. Constraints to
-preserve:
+Every eligible name on screen at once, knocked out in halves (236 → 118 → … → 2 → 1) until the
+committed winner is the last one standing. It replaced a spinning name reel, which showed five
+names out of hundreds: nobody saw themselves, and nothing said "everyone is in this". Constraints
+to preserve:
 
-- The strip is a fixed `RUNWAY + VISIBLE_ROWS` rows regardless of roster size, and `target` is a
-  prop — the reel reveals the winner, it never picks one.
-- The spin effect is keyed on `target` alone, never on a "spinning" flag — the drum has to hold
-  its landed position once the engine moves on to `revealing`.
-- Row height is measured from the viewport (`DRUM_VIEWPORT_SHARE`) so the drum fits a 720p beamer;
-  font size is derived from it. Resizing re-renders, but only between spins.
-- The drum curve is the static `.reel-barrel` / `.reel-glare` overlays, not per-row 3D. Modelling
-  a real cylinder would mean a rotateX per row per frame.
-- Decoration (`.reel-rumbling` while spinning; `.reel-impact` / `.winner-pop` / `.payline-sweep` /
-  `.payline-lock` on landing) is applied imperatively to refs so it never re-renders mid-spin, and
-  goes on the *housing*, never the track — the track owns the spin transform. All of it is gated
-  on `reducedMotion`, and the rumble additionally on `quality === "full"`.
-- Re-adding an animation class in the frame it was removed is coalesced and never plays; the
-  `replay()` helper forces a reflow in between.
-- **`quality` must never be an effect dependency here.** `useFrameBudget` downgrades exactly when
-  frames slip — which is when the confetti fires and the drum is blurring. As a dependency it
-  re-ran the spin effect mid-reveal, cancelling the finished animation and starting a fresh spin,
-  so the winner slid off the payline a second after landing. It is read through `qualityRef`.
-- The cabinet state lives as `is-spinning` / `is-win` classes on the `.reel-drum` wrapper, which
-  drive the marquee bulbs (`bulb-breathe` idle → `bulb-chase` spinning → `bulb-strobe` on the
-  stop) and the `.reel-bloom` lamp. Bulb count is fixed at `BULBS`; the chase is a staggered
-  `animation-delay`, not per-frame work.
+- **It reveals, it never picks.** `targetId` is the winner the engine already committed. The
+  knock-out order comes from `lib/stage/wall-plan.ts` (`planWall`), which is unit-tested never to
+  knock out the winner, to leave exactly `ceil(alive / 2)` after every round, and to be
+  deterministic per (pool, winner). It uses its own small PRNG on purpose — never pull
+  presentation randomness from `lib/domain/rng.ts`, whose nonces the log depends on.
+- **The pool includes the target.** `eligibleParticipants` has already dropped the winner by the
+  time the wall starts (commit first), so the stage adds it back. Entries are ids, not names, so
+  two people with the same name are two tiles.
+- **The final round waits for `landed`.** Rounds before the last run on the wall's own clock
+  (`RUN_SHARE` of the spin) and stop with two names standing; the last knock-out only plays when
+  the engine reveals. Suspense scaling stretches the engine's spin, not the wall's, so the wall
+  must never land on its own.
+- **The run is keyed on `targetId` alone.** Quality, reduced motion, duration and `onTick` are read
+  through a ref. `useFrameBudget` downgrades exactly when frames slip — as an effect dependency it
+  would restart the sweep mid-reveal (the reel this replaced had that bug: the winner slid off the
+  payline a second after landing).
+- **Canvas, not DOM.** One element per name is the v2 failure that "500 participants do not
+  inflate the DOM" catches. The only DOM text is the count line and, once landed, the winner
+  overlay (`data-testid="wall-winner"`) — it must not exist before the reveal. Past the point
+  where text would drop under `MIN_FONT` the wall draws dots, and gives the dots their names back
+  once 40 or fewer remain.
+- The canvas exposes `data-pool-size` and `data-alive` for tests; `e2e/draw.spec.ts` → "the wall"
+  checks it lands on exactly the committed winner without naming them early.
 
 ## Comment style
 

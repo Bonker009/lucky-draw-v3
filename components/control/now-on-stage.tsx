@@ -33,7 +33,7 @@ export function NowOnStage({
   link: StageLink;
   now: number;
   revealedName: string | null;
-  /** Set while the photo-call board has replaced the reel. */
+  /** Set while the photo-call board has replaced the name wall. */
   rosterLabel: string | null;
 }) {
   if (link === "none" || !mirror) {

@@ -40,38 +40,43 @@ export function WinnersRail({
     [state.winners, total, limit],
   );
 
-  if (recent.length === 0) return null;
+  const width = "w-[19vw] min-w-60 max-w-96 shrink-0";
+
+  // Hold the rail's width even before the first winner. Appearing on the
+  // first reveal used to narrow the name wall at exactly the moment the room
+  // was reading it, reflowing every column under the winner's name.
+  if (recent.length === 0) return <div aria-hidden className={width} />;
 
   return (
-    <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col gap-3 border-l border-ink-500/15 py-6 pl-5 pr-4 xl:w-72">
-      <h2 className="shrink-0 stage-label text-[0.6rem] text-ink-500">
+    <aside className={`flex h-full min-h-0 ${width} flex-col gap-[2.5vh] border-l border-ink-100/[0.07] pb-[8vh] pl-[2vw] pr-[2.4vw] pt-[7vh]`}>
+      <h2 className="shrink-0 text-[min(1.3vh,0.85rem)] font-medium uppercase tracking-[0.08em] text-ink-500">
         Winners · {total}
       </h2>
 
       {/* The fade tells the audience the list continues without a scrollbar
           appearing on a projected screen. */}
-      <ol className="list-fade-bottom flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ol className="list-fade-bottom flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {recent.map((winner, i) => (
           <li
             key={`${winner.prizeId}-${winner.participantId}`}
             // rail-enter plays once per mount. Keys are per-winner and stable,
             // so only the row that just appeared animates — the rest of the
             // list is untouched.
-            className={`rail-enter shrink-0 truncate rounded-lg px-3 py-2 ${
-              // The newest winner is the one the audience is still looking for
-              // on the rail, so it keeps the accent.
-              i === 0 ? "bg-gold/10 ring-1 ring-gold/25" : ""
-            }`}
+            className="rail-enter shrink-0 border-b border-ink-100/[0.07] py-[1.5vh]"
           >
             <span
-              className={`block truncate text-[0.95rem] leading-tight ${
-                i === 0 ? "text-gold-bright" : "text-ink-100"
+              // The newest winner is the one the audience is still looking for
+              // on the rail, so it keeps the accent.
+              className={`block truncate text-[min(2.2vh,1.5rem)] leading-snug tracking-tight ${
+                i === 0
+                  ? "font-semibold text-gold-bright"
+                  : "font-medium text-ink-100"
               }`}
             >
               {state.participantsById.get(winner.participantId)?.name ??
                 winner.participantId}
             </span>
-            <span className="block truncate text-xs text-ink-500">
+            <span className="mt-0.5 block truncate text-[min(1.4vh,0.95rem)] text-ink-500">
               {state.prizesById.get(winner.prizeId)?.name ?? ""}
             </span>
           </li>
