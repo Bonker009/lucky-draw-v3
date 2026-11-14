@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FLAP_TYPING_MS } from "@/components/stage/reveals/flap-timing";
 import { computeDraw } from "@/lib/domain/draw";
 import { nextAvailablePrize, remainingFor } from "@/lib/domain/selectors";
 import { getEngine } from "@/lib/engine/draw-engine";
@@ -136,7 +137,12 @@ export function useStageController(options: {
         {
           spinDurationMs: settings.spinDurationMs,
           suspenseScaling: settings.suspenseScaling,
-          revealHoldMs: settings.revealHoldMs,
+          // The split-flap board types the name out letter by letter after
+          // the reveal; without the extra hold, the next draw of a batch
+          // started mid-name and cut it off.
+          revealHoldMs:
+            settings.revealHoldMs +
+            (settings.drawStyle === "flap" ? FLAP_TYPING_MS : 0),
           reducedMotion: reducedMotion || settings.reducedMotionOverride,
           onCommit: async () => {
             // Plan one winner at a time, against the state as it is right
