@@ -68,7 +68,7 @@ export function FairnessPanel() {
       description="A seeded draw that can be replayed and checked afterwards."
       actions={
         locked ? (
-          <Badge variant="outline" className="border-gold-ui/40 text-gold-ui-strong">
+          <Badge variant="outline" className="border-border text-muted-foreground">
             <Lock className="size-3" />
             Seed locked
           </Badge>
@@ -114,7 +114,7 @@ export function FairnessPanel() {
         </div>
 
         {commitment ? (
-          <div className="rounded-xl border border-gold-ui/40 bg-card p-5">
+          <div className="rounded-xl border border-border bg-muted/40 p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="ui-eyebrow text-muted-foreground">
                 Commitment
@@ -136,7 +136,7 @@ export function FairnessPanel() {
                 {copied ? "Copied" : "Copy"}
               </Button>
             </div>
-            <p className="break-all font-mono text-sm leading-relaxed text-gold-ui-strong">
+            <p className="break-all font-mono text-sm leading-relaxed text-foreground">
               {commitment}
             </p>
             <p className="mt-3 text-xs text-muted-foreground">
@@ -183,7 +183,7 @@ export function FairnessPanel() {
               variant={verification.ok ? "default" : "destructive"}
               className={
                 verification.ok
-                  ? "border-gold-ui/30 bg-gold-ui/5 text-gold-ui-strong"
+                  ? "border-emerald-600/30 bg-emerald-600/5 text-emerald-700 dark:text-emerald-400"
                   : undefined
               }
             >
@@ -193,7 +193,7 @@ export function FairnessPanel() {
                 <ShieldAlert className="size-4" />
               )}
               <AlertDescription
-                className={verification.ok ? "text-gold-ui-strong" : undefined}
+                className={verification.ok ? "text-emerald-600 dark:text-emerald-400" : undefined}
               >
                 {verification.message}
               </AlertDescription>

@@ -21,17 +21,21 @@
 :root {
   /* ---- Stage palette. Fixed in both themes. --------------------------- */
 
-  /* Deep neutral base, not black — black on a projector crushes to mud and
-     kills the sense of depth behind the reel. */
-  --base-900: #0b0e14;
-  --base-800: #121722;
-  --base-700: #1b2230;
-  --base-600: #273040;
-  --ink-100: #f4f6fb;
-  --ink-300: #c3cbdb;
-  --ink-500: #8592aa;
+  /* Near-black, not black — pure black on a projector crushes to mud and
+     kills the sense of depth behind the names. Neutral rather than the navy
+     the cabinet era used: the stage is now type on a dark field, and a blue
+     cast made the white names read as tinted. */
+  --base-900: #060607;
+  --base-800: #0e0f12;
+  --base-700: #18191d;
+  --base-600: #2a2b30;
+  --ink-100: #f5f5f7;
+  --ink-300: #d1d1d6;
+  --ink-500: #8e8e93;
 
-  /* One accent, three fixed intensities. */
+  /* One accent, three fixed intensities. Gold is reserved for the winner —
+     the name, its glow, the line it lands on — so it only ever means "this
+     one". Controls and chrome stay neutral. */
   --gold-bright: #f2d68a;
   --gold: #d4af37;
   --gold-deep: #8a6d1f;
@@ -44,41 +48,43 @@
   --gold-ui: #8a6d1f;
   --gold-ui-strong: #6b5316;
 
-  --background: #f6f7fa;
-  --foreground: #11151d;
+  --background: #fafafa;
+  --foreground: #0a0a0b;
   --card: #ffffff;
-  --card-foreground: #11151d;
+  --card-foreground: #0a0a0b;
   --popover: #ffffff;
-  --popover-foreground: #11151d;
-  --primary: #c9a227;
-  --primary-foreground: #1a1408;
-  --secondary: #eceef4;
-  --secondary-foreground: #11151d;
-  --muted: #eceef4;
-  --muted-foreground: #5d6880;
-  --accent: #eceef4;
-  --accent-foreground: #11151d;
+  --popover-foreground: #0a0a0b;
+  /* Primary actions are ink, not gold: gold on white failed contrast for its
+     own label and competed with the winner highlights it sits next to. */
+  --primary: #0a0a0b;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #0a0a0b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #0a0a0b;
   --destructive: oklch(0.55 0.2 25);
   --destructive-foreground: #ffffff;
-  --border: #dfe3ec;
-  --input: #dfe3ec;
-  --ring: #b08d1f;
-  --radius: 0.75rem;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #71717a;
+  --radius: 0.625rem;
 
-  --chart-1: #c9a227;
+  --chart-1: #0a0a0b;
   --chart-2: #8a6d1f;
-  --chart-3: #5d6880;
-  --chart-4: #9aa4bb;
-  --chart-5: #c3cbdb;
+  --chart-3: #71717a;
+  --chart-4: #a1a1aa;
+  --chart-5: #d4d4d8;
 
   --sidebar: #ffffff;
-  --sidebar-foreground: #11151d;
-  --sidebar-primary: #c9a227;
-  --sidebar-primary-foreground: #1a1408;
-  --sidebar-accent: #eceef4;
-  --sidebar-accent-foreground: #11151d;
-  --sidebar-border: #dfe3ec;
-  --sidebar-ring: #b08d1f;
+  --sidebar-foreground: #0a0a0b;
+  --sidebar-primary: #0a0a0b;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #0a0a0b;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #71717a;
 }
 
 /* ---- Dark theme ---------------------------------------------------------
@@ -89,40 +95,41 @@
   --gold-ui: #d4af37;
   --gold-ui-strong: #f2d68a;
 
-  --background: var(--base-900);
-  --foreground: var(--ink-100);
-  --card: var(--base-800);
-  --card-foreground: var(--ink-100);
-  --popover: var(--base-800);
-  --popover-foreground: var(--ink-100);
-  --primary: var(--gold);
-  --primary-foreground: var(--base-900);
-  --secondary: var(--base-700);
-  --secondary-foreground: var(--ink-100);
-  --muted: var(--base-700);
-  --muted-foreground: var(--ink-500);
-  --accent: var(--base-700);
-  --accent-foreground: var(--ink-100);
+  --background: #0a0a0b;
+  --foreground: #ededef;
+  --card: #111113;
+  --card-foreground: #ededef;
+  --popover: #111113;
+  --popover-foreground: #ededef;
+  --primary: #ededef;
+  --primary-foreground: #0a0a0b;
+  --secondary: #18181b;
+  --secondary-foreground: #ededef;
+  --muted: #18181b;
+  --muted-foreground: #8b8b93;
+  --accent: #1f1f23;
+  --accent-foreground: #ededef;
   --destructive: oklch(0.58 0.19 25);
-  --destructive-foreground: var(--ink-100);
-  --border: var(--base-600);
-  --input: var(--base-600);
-  --ring: var(--gold);
+  --destructive-foreground: #ededef;
+  /* Hairlines: barely there, so cards read as structure rather than boxes. */
+  --border: #232326;
+  --input: #2a2a2e;
+  --ring: #a1a1aa;
 
-  --chart-1: var(--gold);
+  --chart-1: #ededef;
   --chart-2: var(--gold-bright);
-  --chart-3: var(--gold-deep);
-  --chart-4: var(--ink-300);
-  --chart-5: var(--ink-500);
+  --chart-3: #8b8b93;
+  --chart-4: #52525b;
+  --chart-5: #3f3f46;
 
-  --sidebar: var(--base-800);
-  --sidebar-foreground: var(--ink-100);
-  --sidebar-primary: var(--gold);
-  --sidebar-primary-foreground: var(--base-900);
-  --sidebar-accent: var(--base-700);
-  --sidebar-accent-foreground: var(--ink-100);
-  --sidebar-border: var(--base-600);
-  --sidebar-ring: var(--gold);
+  --sidebar: #111113;
+  --sidebar-foreground: #ededef;
+  --sidebar-primary: #ededef;
+  --sidebar-primary-foreground: #0a0a0b;
+  --sidebar-accent: #18181b;
+  --sidebar-accent-foreground: #ededef;
+  --sidebar-border: #232326;
+  --sidebar-ring: #a1a1aa;
 }
 
 @theme inline {
@@ -190,7 +197,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply bg-background text-foreground font-sans antialiased;
   }
 }
 
@@ -203,35 +210,11 @@
 
 /* ---- Setup surface ------------------------------------------------------ */
 
-/* A faint accent wash so the setup page reads as the same product as the
-   stage rather than a generic admin form. Static, no animation: this screen is
-   often left open on a second monitor for the whole event. */
+/* The setup page used to carry a gold wash here. It is flat now on purpose:
+   the operator surfaces are neutral so that gold keeps meaning "winner". The
+   class stays as the page hook. */
 .setup-aura {
-  background:
-    radial-gradient(
-      60rem 30rem at 15% -10%,
-      rgb(201 162 39 / 0.14),
-      transparent 60%
-    ),
-    radial-gradient(
-      45rem 28rem at 100% 0%,
-      rgb(93 104 128 / 0.1),
-      transparent 60%
-    );
-}
-
-.dark .setup-aura {
-  background:
-    radial-gradient(
-      60rem 30rem at 15% -10%,
-      rgb(212 175 55 / 0.1),
-      transparent 60%
-    ),
-    radial-gradient(
-      45rem 28rem at 100% 0%,
-      rgb(122 152 214 / 0.07),
-      transparent 60%
-    );
+  background: var(--background);
 }
 
 /*
@@ -239,11 +222,15 @@
  * back of a room and its font-size wins over a Tailwind text-* utility (it is
  * an unlayered rule), so reaching for it on the setup page silently blows
  * small labels up. This is the one to use there.
+ *
+ * 12px and 0.05em: the earlier 0.65rem / 0.16em sat under the 12px floor for
+ * UI text and its wide tracking made short labels hard to scan.
  */
 .ui-eyebrow {
-  font-size: 0.65rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
   font-weight: 500;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 

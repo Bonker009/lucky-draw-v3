@@ -52,7 +52,7 @@ export function PrizeList({
               onClick={() => onSelect(prize.id)}
               className={`flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm transition-colors disabled:opacity-50 ${
                 isSelected
-                  ? "bg-gold-ui/15 text-foreground ring-1 ring-gold-ui/40 ring-inset"
+                  ? "bg-muted text-foreground ring-1 ring-border ring-inset"
                   : "hover:bg-muted/60"
               }`}
             >
@@ -87,12 +87,12 @@ export function PrizeList({
                     className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted"
                   >
                     <span
-                      className="block h-full rounded-full bg-gold-ui"
+                      className="block h-full rounded-full bg-foreground"
                       style={{ width: `${done}%` }}
                     />
                   </span>
                   <span className="min-w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    <span className="font-medium text-gold-ui-strong">{left}</span>{" "}
+                    <span className="font-medium text-foreground">{left}</span>{" "}
                     left
                   </span>
                 </>

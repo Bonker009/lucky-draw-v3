@@ -78,7 +78,7 @@ export function ParticipantsPanel() {
           <Badge variant="outline" className="border-border text-foreground/75">
             {state.participants.length} on the list
           </Badge>
-          <Badge variant="outline" className="border-gold-ui/40 text-gold-ui-strong">
+          <Badge variant="outline" className="border-border text-muted-foreground">
             {eligible} eligible
           </Badge>
         </div>
@@ -165,7 +165,7 @@ export function ParticipantsPanel() {
         </div>
 
         {status ? (
-          <p className="text-sm text-gold-ui-strong" role="status">
+          <p className="text-sm text-foreground" role="status">
             {status}
           </p>
         ) : null}

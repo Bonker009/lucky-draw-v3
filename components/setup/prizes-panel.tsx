@@ -201,7 +201,7 @@ function PrizeRow({
         onClick={() => fileRef.current?.click()}
         disabled={busy}
         aria-label={`Set image for ${prize.name}`}
-        className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-muted text-muted-foreground transition-colors hover:border-gold-ui/50 hover:text-gold-ui"
+        className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-muted text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
       >
         {imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- blob: URL from IndexedDB
@@ -222,7 +222,7 @@ function PrizeRow({
         {awarded > 0 ? (
           <Progress
             value={done}
-            className="mt-2 h-1 bg-muted [&>*]:bg-gold-ui"
+            className="mt-2 h-1 bg-muted [&>*]:bg-foreground"
           />
         ) : null}
         {error ? <p className="text-xs text-destructive">{error}</p> : null}

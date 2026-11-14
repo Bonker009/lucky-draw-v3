@@ -31,7 +31,7 @@ export function SectionCard({
     <Card className="border-border bg-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base text-foreground">
-          {icon ? <span className="text-gold-ui">{icon}</span> : null}
+          {icon ? <span className="text-muted-foreground">{icon}</span> : null}
           {title}
         </CardTitle>
         {description ? (

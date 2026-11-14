@@ -201,7 +201,7 @@ function TimingSlider({
         <Label htmlFor={id} className="text-foreground/75">
           {label}
         </Label>
-        <span className="font-mono text-sm tabular-nums text-gold-ui-strong">
+        <span className="font-mono text-sm tabular-nums text-foreground">
           {(value / 1000).toFixed(1)}s
         </span>
       </div>
@@ -242,7 +242,7 @@ function ToggleRow({
         id={id}
         checked={checked}
         onCheckedChange={onChange}
-        className="mt-0.5 shrink-0 data-[state=checked]:bg-gold-ui"
+        className="mt-0.5 shrink-0"
       />
     </div>
   );

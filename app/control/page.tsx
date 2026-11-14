@@ -30,8 +30,8 @@ import { useEventStore } from "@/lib/store/event-store";
 const LINK_BADGE = {
   linked: {
     label: "Stage linked",
-    className: "border-gold-ui/40 bg-gold-ui/10 text-gold-ui-strong",
-    dot: "bg-gold-ui",
+    className: "border-border bg-card text-foreground",
+    dot: "bg-emerald-500",
   },
   lost: {
     label: "Stage lost",

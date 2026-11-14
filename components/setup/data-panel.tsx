@@ -203,7 +203,7 @@ export function DataPanel() {
         </div>
 
         {status ? (
-          <p className="text-sm text-gold-ui-strong" role="status">
+          <p className="text-sm text-foreground" role="status">
             {status}
           </p>
         ) : null}

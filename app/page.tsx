@@ -47,30 +47,38 @@ export default function SetupPage() {
       {/* Sticky, because the operator jumps between panels constantly during
           setup and the stage buttons have to stay within reach. */}
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/85 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-4 px-6 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span
-              aria-hidden
-              className="size-2.5 shrink-0 rounded-full bg-gold-ui shadow-[0_0_14px_2px_rgb(212_175_55/0.55)]"
-            />
-            <div className="min-w-0">
-              <p className="ui-eyebrow text-muted-foreground">
-                Lucky Draw · Setup
-              </p>
-              <h1 className="truncate text-lg font-semibold text-foreground">
-                {state.settings.eventName || "Untitled event"}
-              </h1>
-            </div>
+        <div className="mx-auto flex min-h-15 w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-6 py-3">
+          <span
+            aria-hidden
+            // Always the stage's near-black, in both themes: it is the
+            // projector in miniature, and the gold dot vanished on the light
+            // square that `bg-foreground` turned into in dark mode.
+            className="grid size-6 shrink-0 place-items-center rounded-[7px] bg-base-900 ring-1 ring-white/10"
+          >
+            <span className="size-2 rounded-full bg-gold-bright" />
+          </span>
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="shrink-0 text-muted-foreground">Lucky Draw</span>
+            <span aria-hidden className="text-muted-foreground/50">
+              /
+            </span>
+            <h1 className="truncate font-semibold text-foreground">
+              {state.settings.eventName || "Untitled event"}
+            </h1>
           </div>
 
           <Badge
             variant="outline"
-            className={
-              canRun
-                ? "border-gold-ui/40 bg-gold-ui/10 text-gold-ui-strong"
-                : "border-border text-muted-foreground"
-            }
+            className="gap-1.5 rounded-full border-border bg-card font-medium text-foreground"
           >
+            <span
+              aria-hidden
+              className={`size-1.5 rounded-full ${
+                canRun
+                  ? "bg-emerald-600 shadow-[0_0_0_3px_rgb(5_150_105/0.15)]"
+                  : "bg-muted-foreground"
+              }`}
+            />
             {canRun ? "Ready to run" : "Not ready"}
           </Badge>
 
@@ -106,7 +114,7 @@ export default function SetupPage() {
         </p>
 
         {!canRun ? (
-          <Alert className="mb-6 border-gold-ui/30 bg-gold-ui/5 text-foreground/75">
+          <Alert className="mb-6 border-border bg-muted/50 text-foreground/80">
             <AlertDescription>
               Add participants and at least one prize to open the stage.
             </AlertDescription>
@@ -125,17 +133,22 @@ export default function SetupPage() {
           </Alert>
         ) : null}
 
-        <dl className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* One strip split by hairlines rather than four cards: the numbers are
+            read together ("248 in, 12 out, 4 to go"), so they sit together. */}
+        <dl className="mb-8 grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-4 [&>div]:border-border [&>div:not(:last-child)]:sm:border-r [&>div:nth-child(odd)]:max-sm:border-r [&>div:nth-child(-n+2)]:max-sm:border-b">
           <Stat label="Participants" value={stats.totalParticipants} />
           <Stat label="Eligible" value={stats.eligible} />
-          <Stat label="Awarded" value={stats.awarded} accent />
+          <Stat label="Awarded" value={stats.awarded} />
           <Stat label="Slots left" value={stats.remaining} />
         </dl>
 
         {/* Tabs rather than one long scroll: the five panels are five separate
             jobs, and only Participants is normally revisited mid-event. */}
         <Tabs defaultValue="participants" className="gap-6">
-          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-card p-1">
+          <TabsList
+            variant="line"
+            className="h-auto w-full flex-wrap justify-start gap-6 border-b border-border p-0"
+          >
             <SetupTab value="participants" icon={<Users />}>
               Participants
             </SetupTab>
@@ -186,7 +199,9 @@ function SetupTab({
   return (
     <TabsTrigger
       value={value}
-      className="gap-2 px-4 py-2 text-muted-foreground data-[state=active]:bg-muted data-[state=active]:text-gold-ui-strong"
+      // An underline, not a filled pill: the tab row is navigation, and a
+      // filled active tab read as one more button among the panel's actions.
+      className="h-11 flex-none gap-2 rounded-none px-0 text-muted-foreground hover:text-foreground group-data-horizontal/tabs:after:-bottom-px"
     >
       {icon}
       {children}
@@ -194,23 +209,11 @@ function SetupTab({
   );
 }
 
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent?: boolean;
-}) {
+function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
+    <div className="px-5 py-4">
       <dt className="ui-eyebrow text-muted-foreground">{label}</dt>
-      <dd
-        className={`mt-1 text-2xl font-semibold tabular-nums ${
-          accent ? "text-gold-ui-strong" : "text-foreground"
-        }`}
-      >
+      <dd className="mt-1.5 font-mono text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums text-foreground">
         {value}
       </dd>
     </div>

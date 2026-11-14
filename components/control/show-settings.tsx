@@ -164,7 +164,7 @@ function TimeStepper({
               }
             }}
             aria-label={`${label} in seconds`}
-            className="w-10 bg-transparent text-right font-mono text-xs tabular-nums text-gold-ui-strong outline-none focus:rounded focus:bg-muted disabled:opacity-50"
+            className="w-10 bg-transparent text-right font-mono text-xs tabular-nums text-foreground outline-none focus:rounded focus:bg-muted disabled:opacity-50"
           />
           <span aria-hidden className="pr-1 font-mono text-xs text-muted-foreground">
             s
@@ -211,7 +211,6 @@ function Toggle({
         checked={checked}
         disabled={disabled}
         onCheckedChange={onChange}
-        className="data-checked:bg-gold-ui"
       />
       {label}
     </label>
