@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Rng } from "@/lib/domain/rng";
+import { canvasMeasure, fitFontSize } from "@/lib/stage/fit-text";
 import type { RevealProps } from "./types";
 
 /*
@@ -81,6 +82,24 @@ export function ClassicReel({
     return () => ro.disconnect();
   }, []);
 
+  const fitCache = useRef(new Map<string, number>());
+  const winnerPx = (text: string, width: number, rh: number) => {
+    const key = `${text}|${width}|${rh}`;
+    const hit = fitCache.current.get(key);
+    if (hit !== undefined) return hit;
+    const family = getComputedStyle(trackRef.current ?? document.body).fontFamily;
+    const px = fitFontSize(text, {
+      // The row's horizontal padding is 5vw each side.
+      maxWidth: width - (window.innerWidth * 0.1),
+      maxLines: 1,
+      max: Math.round(rh * 0.66),
+      min: Math.round(rh * 0.3),
+      measure: canvasMeasure(600, family),
+    });
+    fitCache.current.set(key, px);
+    return px;
+  };
+
   const paint = (y: number) => {
     const { names, landingIndex } = stripRef.current;
     const first = Math.max(0, Math.floor(y / rowHeight) - 1);
@@ -97,7 +116,11 @@ export function ClassicReel({
       const isWinner = isLanded && index === landingIndex;
       const distance = Math.abs(index * rowHeight - y - CENTER_ROW * rowHeight) / rowHeight;
       const size = isWinner ? 0.66 : distance < 0.5 ? 0.56 : 0.4;
-      const fontSize = `${Math.round(rowHeight * size)}px`;
+      // The landed winner shrinks to fit its row instead of being cut off;
+      // decoys may truncate. Measured once per landing, not per frame.
+      const fontSize = `${
+        isWinner ? winnerPx(text, row.clientWidth, rowHeight) : Math.round(rowHeight * size)
+      }px`;
       if (label.style.fontSize !== fontSize) label.style.fontSize = fontSize;
       const state = isWinner ? "win" : isLanded ? "dim" : "spin";
       if (label.dataset.state !== state) label.dataset.state = state;

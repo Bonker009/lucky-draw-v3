@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { splitRows } from "@/lib/stage/fit-text";
 import { RUN_SHARE, type RevealProps } from "./types";
 
 /*
@@ -23,6 +24,12 @@ import { RUN_SHARE, type RevealProps } from "./types";
 const LATIN = /^[\p{Script=Latin}\p{N}\s.'’-]+$/u;
 const CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const MIN_TILES = 12;
+/**
+ * Past this many characters a name splits onto two rows at a space. One long
+ * row shrank every tile until a 30-character name was small text on a big
+ * screen; two rows keep the tiles large.
+ */
+const MAX_PER_ROW = 16;
 /** A flipping tile changes letter this often, roughly a real flap's cadence. */
 const FLIP_MS = 70;
 
@@ -57,7 +64,9 @@ export function FlapBoard({
     : null;
   const latin = targetName === null || LATIN.test(targetName);
   const display = (targetName ?? "").toLocaleUpperCase();
-  const tileCount = Math.max(MIN_TILES, Array.from(display).length);
+  const rows = latin && targetName ? splitRows(display, MAX_PER_ROW) : [display];
+  const cols = Math.max(MIN_TILES, ...rows.map((r) => Array.from(r).length));
+  const tileCount = cols * rows.length;
 
   const tileRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const panelRef = useRef<HTMLSpanElement>(null);
@@ -152,9 +161,13 @@ export function FlapBoard({
       return;
     }
     const { pool: entries, durationMs: d } = live.current;
-    const chars = Array.from(display);
-    const pad = Math.floor((tileCount - chars.length) / 2);
-    const padded = Array.from({ length: tileCount }, (_, i) => chars[i - pad] ?? " ");
+    // Each row centred in its own line of tiles; letters settle row by row,
+    // left to right, so the last letter of the last row still waits.
+    const padded = rows.flatMap((row) => {
+      const rc = Array.from(row);
+      const pad = Math.floor((cols - rc.length) / 2);
+      return Array.from({ length: cols }, (_, i) => rc[i - pad] ?? " ");
+    });
     const letterIdx = padded.map((c, i) => (c.trim() ? i : -1)).filter((i) => i >= 0);
     const settleAt = padded.map(() => 0);
     letterIdx.forEach((tileIndex, j) => {
@@ -216,8 +229,8 @@ export function FlapBoard({
           data-landed={won}
           className="group mx-auto grid w-full gap-[0.35vw]"
           style={{
-            gridTemplateColumns: `repeat(${tileCount}, minmax(0, 1fr))`,
-            maxWidth: `${tileCount * 6.2}vw`,
+            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+            maxWidth: `${cols * (rows.length > 1 ? 5.2 : 6.2)}vw`,
           }}
         >
           {Array.from({ length: tileCount }, (_, i) => (

@@ -402,6 +402,31 @@
   animation: reveal-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* The envelope's drawn card: a slow float while it waits face down, and a
+   flip that arcs towards the viewer at its midpoint. Translate (not
+   transform) for the float, so it composes with the lift transform. */
+@keyframes card-hover {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -0.9vh;
+  }
+}
+
+@keyframes card-flip {
+  0% {
+    transform: rotateY(0deg) translateZ(0);
+  }
+  50% {
+    transform: rotateY(90deg) translateZ(14vh);
+  }
+  100% {
+    transform: rotateY(180deg) translateZ(0);
+  }
+}
+
 @keyframes pulse-soft {
   0%,
   100% {

@@ -15,6 +15,7 @@ export type LiveSettings = Pick<
   | "suspenseScaling"
   | "soundEnabled"
   | "reducedMotionOverride"
+  | "showWinnersRail"
 >;
 
 /**
@@ -46,6 +47,7 @@ export function sanitizeLiveSettings(patch: unknown): Partial<LiveSettings> {
     "suspenseScaling",
     "soundEnabled",
     "reducedMotionOverride",
+    "showWinnersRail",
   ] as const) {
     if (typeof p[key] === "boolean") out[key] = p[key];
   }

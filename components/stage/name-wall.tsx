@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Quality } from "@/lib/hooks/use-frame-budget";
 import { planWall, roundEnds, type WallPlan } from "@/lib/stage/wall-plan";
+import { useFittedSize } from "@/components/stage/reveals/use-fitted-size";
 
 /*
  * The name wall: every eligible name on screen at once, knocked out in halves
@@ -416,6 +417,9 @@ export function NameWall({
   }, [pool]);
 
   const winnerName = hud.winnerName;
+  // The winner's name wraps to two lines and shrinks to fit rather than being
+  // cut off with an ellipsis — a truncated winner is a name nobody can read.
+  const [winnerBox, winnerPx] = useFittedSize(winnerName, { maxLines: 2, maxVh: 15, maxPx: 144, minPx: 36, weight: 700 });
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-[2.2vh]">
@@ -475,7 +479,10 @@ export function NameWall({
             className="reveal-rise pointer-events-none absolute -inset-10 flex flex-col items-center justify-center gap-[2vh]"
             style={{
               background:
-                "radial-gradient(ellipse 48% 34% at 50% 50%, rgb(6 6 7 / 0.94) 0%, rgb(6 6 7 / 0.7) 55%, transparent 85%)",
+                // Wide and tall enough for a name that wraps to two lines,
+                // so the wall (and the winner's own gold tile) never shows
+                // through behind the overlay.
+                "radial-gradient(ellipse 64% 48% at 50% 50%, rgb(6 6 7 / 0.96) 0%, rgb(6 6 7 / 0.82) 55%, transparent 88%)",
             }}
           >
             <div
@@ -486,9 +493,14 @@ export function NameWall({
                   "radial-gradient(ellipse 36% 20% at 50% 50%, rgb(242 214 138 / 0.16), transparent 75%)",
               }}
             />
-            <span className="stage-name relative max-w-[90%] truncate text-center text-gold-bright">
-              {winnerName}
-            </span>
+            <div ref={winnerBox} className="relative w-[90%]">
+              <span
+                className="stage-name name-mixed block text-center text-gold-bright [overflow-wrap:anywhere] [text-wrap:balance]"
+                style={winnerPx ? { fontSize: winnerPx, lineHeight: 1.05 } : undefined}
+              >
+                {winnerName}
+              </span>
+            </div>
             <span className="relative flex items-center gap-4 text-[min(2.2vh,1.4rem)] text-ink-500">
               <span aria-hidden className="h-px w-10 bg-gold/50" />
               last name standing of {hud.total}

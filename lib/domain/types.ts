@@ -53,6 +53,8 @@ export interface Settings {
   reducedMotionOverride: boolean;
   /** Absent in logs written before draw styles existed; folds to "wall". */
   drawStyle: DrawStyle;
+  /** The winners list beside the stage. Hidden gives the reveal the full width. */
+  showWinnersRail: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -65,6 +67,7 @@ export const DEFAULT_SETTINGS: Settings = {
   prizeOrder: [],
   reducedMotionOverride: false,
   drawStyle: "wall",
+  showWinnersRail: true,
 };
 
 /**

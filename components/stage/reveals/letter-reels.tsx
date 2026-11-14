@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { canvasMeasure, fitFontSize } from "@/lib/stage/fit-text";
 import { graphemes, planLetters, type LetterPlan } from "@/lib/stage/letter-plan";
 import { RUN_SHARE, type RevealProps } from "./types";
 
@@ -69,6 +70,22 @@ export function LetterReels({
   // lock count or name reel never lingers into the next one.
   const nameOnRef = useRef<boolean | null>(null);
 
+  const fitWinner = (el: HTMLElement, text: string): string => {
+    // Read the class size, not a previous fit: clear the inline size first.
+    el.style.fontSize = "";
+    const cs = getComputedStyle(el);
+    const max = parseFloat(cs.fontSize) || 80;
+    const width = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const px = fitFontSize(text, {
+      maxWidth: width,
+      maxLines: 1,
+      max,
+      min: Math.max(24, max * 0.4),
+      measure: canvasMeasure(600, cs.fontFamily),
+    });
+    return px >= max ? "" : `${px}px`;
+  };
+
   const paint = (now: number): boolean => {
     const run = runRef.current;
     if (!run) return false;
@@ -121,6 +138,11 @@ export function LetterReels({
         const text = f[(step + off + f.length) % f.length]?.name ?? "";
         if (el.textContent !== text) el.textContent = text;
         el.dataset.state = done ? (off === 0 ? "win" : "dim") : rm ? "set" : "spin";
+        // The landed winner shrinks to fit the reel rather than truncating.
+        if (off === 0) {
+          const px = done ? fitWinner(el, text) : "";
+          if (el.style.fontSize !== px) el.style.fontSize = px;
+        }
       });
       if (!done && run.lastStep !== step) {
         run.lastStep = step;

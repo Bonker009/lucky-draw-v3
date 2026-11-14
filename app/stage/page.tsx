@@ -30,6 +30,7 @@ import { useEventStore } from "@/lib/store/event-store";
 
 export default function StagePage() {
   const state = useEventStore((s) => s.state);
+  const commit = useEventStore((s) => s.commit);
   const rehearsal = useEventStore((s) => s.rehearsal);
   const snapshot = useEngineSnapshot();
   const quality = useFrameBudget();
@@ -216,7 +217,26 @@ export default function StagePage() {
     };
   }, [rosterScope, selectedPrizeId, showRoster, hideRoster]);
 
-  // Keyboard: space draws one, S stops, P photo call, F fullscreen.
+  /*
+   * The winners list can be hidden for the room (W, or the remote's switch).
+   * It is a setting, not local state, so it survives a reload and the remote
+   * shows the same thing. Only the lease holder writes it; a read-only window
+   * leaves it alone like every other write.
+   */
+  const showRail = state.settings.showWinnersRail ?? true;
+  const railRef = useRef({ showRail, isOwner, commit });
+  useEffect(() => {
+    railRef.current = { showRail, isOwner, commit };
+  }, [showRail, isOwner, commit]);
+  const toggleRail = useCallback(() => {
+    const { showRail: on, isOwner: owner, commit: write } = railRef.current;
+    if (!owner) return;
+    void write([
+      { type: "SETTINGS_PATCHED", patch: { showWinnersRail: !on } },
+    ]).catch(() => {});
+  }, []);
+
+  // Keyboard: space draws one, S stops, P photo call, F fullscreen, W winners list.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       // Shortcuts are accelerators for the buttons, not a replacement for
@@ -244,6 +264,8 @@ export default function StagePage() {
         stop();
       } else if (e.key === "f" || e.key === "F") {
         void toggle();
+      } else if (e.key === "w" || e.key === "W") {
+        toggleRail();
       } else if (e.key === "p" || e.key === "P") {
         const scope = latestRoster.current;
         if (scope.rosterScope) scope.hideRoster();
@@ -253,7 +275,7 @@ export default function StagePage() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [draw, stop, toggle]);
+  }, [draw, stop, toggle, toggleRail]);
 
   if (!ready) {
     return (
@@ -403,7 +425,7 @@ export default function StagePage() {
           </div>
         </div>
 
-        <WinnersRail state={state} hideCount={unrevealed} />
+        {showRail ? <WinnersRail state={state} hideCount={unrevealed} /> : null}
       </div>
 
       {/* ---- Controls --------------------------------------------------- */}
@@ -468,6 +490,14 @@ export default function StagePage() {
             Photo call
           </StageButton>
         )}
+        <StageButton
+          shortcut="W"
+          onClick={toggleRail}
+          aria-pressed={showRail}
+          disabled={!isOwner}
+        >
+          {showRail ? "Hide winners" : "Show winners"}
+        </StageButton>
         <StageButton shortcut="F" onClick={() => void toggle()}>
           {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
         </StageButton>

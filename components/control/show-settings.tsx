@@ -96,6 +96,14 @@ export function ShowSettings({
         disabled={disabled}
         onChange={(reducedMotionOverride) => change({ reducedMotionOverride })}
       />
+      <Toggle
+        id="live-winners-rail"
+        label="Winners list"
+        hint="Show or hide the winners list beside the stage. W on the stage does the same"
+        checked={value.showWinnersRail ?? true}
+        disabled={disabled}
+        onChange={(showWinnersRail) => change({ showWinnersRail })}
+      />
     </section>
   );
 }

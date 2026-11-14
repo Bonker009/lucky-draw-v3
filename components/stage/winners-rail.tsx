@@ -67,7 +67,9 @@ export function WinnersRail({
             <span
               // The newest winner is the one the audience is still looking for
               // on the rail, so it keeps the accent.
-              className={`block truncate text-[min(2.2vh,1.5rem)] leading-snug tracking-tight ${
+              // Two lines, not an ellipsis: a long winner's name cut to
+              // "Leakhena Sopheaktra Vi…" is not one they can be sure is theirs.
+              className={`name-mixed line-clamp-2 text-[min(2.2vh,1.5rem)] leading-snug tracking-tight [overflow-wrap:anywhere] ${
                 i === 0
                   ? "font-semibold text-gold-bright"
                   : "font-medium text-ink-100"
