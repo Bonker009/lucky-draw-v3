@@ -12,9 +12,11 @@ import Link from "next/link";
 import { Backdrop } from "@/components/stage/backdrop";
 import { Confetti, type ConfettiHandle } from "@/components/stage/confetti";
 import { PhotoCall, ROSTER_ALL } from "@/components/stage/photo-call";
-import { NameWall, type WallEntry } from "@/components/stage/name-wall";
+import { DrawReveal } from "@/components/stage/reveals/draw-reveal";
+import type { RevealEntry } from "@/components/stage/reveals/types";
 import { WinnersRail } from "@/components/stage/winners-rail";
 import { eligibleParticipants, remainingFor } from "@/lib/domain/selectors";
+import { spinDuration } from "@/lib/engine/draw-engine";
 import { useEngineSnapshot } from "@/lib/engine/use-draw-engine";
 import { useAssetUrl } from "@/lib/hooks/use-asset-url";
 import {
@@ -139,7 +141,7 @@ export default function StagePage() {
    * called the same thing stay two tiles. Memoised on `state`, so it is
    * rebuilt per commit, not per frame.
    */
-  const wallPool = useMemo<WallEntry[]>(() => {
+  const wallPool = useMemo<RevealEntry[]>(() => {
     const ids = new Set(eligibleParticipants(state).map((p) => p.id));
     if (reelTargetId) ids.add(reelTargetId);
     return state.participants
@@ -163,6 +165,28 @@ export default function StagePage() {
    */
   const unrevealed = spinning && snapshot.target !== null ? 1 : 0;
   const busy = spinning || snapshot.phase === "revealing";
+
+  /*
+   * The draw style, held steady while a draw runs. Switching from setup mid-
+   * draw would unmount the reveal that is halfway to the winner, so a change
+   * waits for the stage to be idle. Adjusted during render, not in an effect,
+   * so the swap costs no extra pass and can never land mid-run.
+   */
+  const requestedStyle = state.settings.drawStyle ?? "wall";
+  const [drawStyle, setDrawStyle] = useState(requestedStyle);
+  if (!busy && drawStyle !== requestedStyle) setDrawStyle(requestedStyle);
+
+  /*
+   * How long the engine will actually spin for this winner. The engine
+   * stretches the last few picks of a batch for suspense; a reveal sized to the
+   * base duration finished early and showed the name before the engine had
+   * revealed it. Read by each style once, when its run starts.
+   */
+  const revealMs = spinDuration(
+    state.settings.spinDurationMs,
+    snapshot.pending,
+    state.settings.suspenseScaling,
+  );
   const revealedParticipant = snapshot.revealed
     ? state.participantsById.get(snapshot.revealed)
     : undefined;
@@ -347,11 +371,12 @@ export default function StagePage() {
           {/* The wall: everyone in the draw, knocked out in halves until the
               committed winner is the one left. It reveals, it never picks. */}
           <div className="flex min-h-0 w-full flex-1">
-            <NameWall
+            <DrawReveal
+              style={drawStyle}
               pool={wallPool}
               targetId={reelTargetId}
               landed={snapshot.revealed !== null}
-              durationMs={state.settings.spinDurationMs}
+              durationMs={revealMs}
               quality={quality}
               reducedMotion={motionOff}
               onTick={sound.tick}

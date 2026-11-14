@@ -208,6 +208,15 @@
   line-height: 1.6;
 }
 
+/* A name that may be Latin or Khmer, in one element. `.km` puts Noto first,
+   which is right for a field known to be Khmer but renders Latin names in
+   Noto's Latin; this keeps Geist and only falls through for Khmer glyphs,
+   with the line-height Khmer needs so its diacritics are not clipped. */
+.name-mixed {
+  font-family: var(--font-geist-sans), "Noto Sans Khmer", sans-serif;
+  line-height: 1.4;
+}
+
 /* ---- Setup surface ------------------------------------------------------ */
 
 /* The setup page used to carry a gold wash here. It is flat now on purpose:

@@ -6,6 +6,8 @@ export interface SeedOptions {
   spinDurationMs?: number;
   revealHoldMs?: number;
   seed?: string;
+  /** Stage draw style; defaults to the name wall. */
+  drawStyle?: "wall" | "flap" | "envelope" | "letters" | "reel";
 }
 
 /**
@@ -73,6 +75,7 @@ export async function seedEvent(page: Page, options: SeedOptions) {
         revealHoldMs: opts.revealHoldMs ?? 400,
         suspenseScaling: false,
         soundEnabled: false,
+        drawStyle: opts.drawStyle ?? "wall",
       },
     });
     opts.prizes.forEach((prize, i) => {

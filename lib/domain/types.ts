@@ -21,6 +21,21 @@ export interface Prize {
   quantity: number;
 }
 
+/**
+ * How the stage reveals a winner. Presentation only: every style reveals the
+ * winner the engine already committed, so switching style can never change
+ * who wins — only how the room finds out.
+ */
+export type DrawStyle = "wall" | "flap" | "envelope" | "letters" | "reel";
+
+export const DRAW_STYLES: readonly DrawStyle[] = [
+  "wall",
+  "flap",
+  "envelope",
+  "letters",
+  "reel",
+];
+
 export interface Settings {
   eventName: string;
   /** Seed for the deterministic RNG. Fixed before the event, shown in the commitment. */
@@ -36,6 +51,8 @@ export interface Settings {
   /** Prize ids in presentation order. Ids not listed fall to the end. */
   prizeOrder: string[];
   reducedMotionOverride: boolean;
+  /** Absent in logs written before draw styles existed; folds to "wall". */
+  drawStyle: DrawStyle;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -47,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   soundEnabled: true,
   prizeOrder: [],
   reducedMotionOverride: false,
+  drawStyle: "wall",
 };
 
 /**

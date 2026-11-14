@@ -492,15 +492,54 @@ test.describe("the wall", () => {
     // winner is still counted on the wall rather than dropped from it.
     await page.waitForTimeout(1000);
     expect(await drawnWinnerIds(page)).toHaveLength(1);
-    await expect(page.getByTestId("wall-winner")).toHaveCount(0);
+    await expect(page.getByTestId("reveal-winner")).toHaveCount(0);
     await expect(wall).toHaveAttribute("data-pool-size", "60");
 
-    const winner = page.getByTestId("wall-winner");
+    const winner = page.getByTestId("reveal-winner");
     await expect(winner).toBeVisible({ timeout: 20_000 });
     const [id] = await drawnWinnerIds(page);
     await expect(winner).toContainText(nameOf(id));
     await expect(wall).toHaveAttribute("data-alive", "1");
   });
+});
+
+test.describe("every draw style", () => {
+  /*
+   * Switching style is presentation only, so every style is held to the same
+   * contract as the wall: it lands on exactly the winner the engine
+   * committed, and nothing marks that winner before the engine reveals.
+   */
+  for (const drawStyle of ["wall", "flap", "envelope", "letters", "reel"] as const) {
+    test(`${drawStyle} reveals the committed winner, and not early`, async ({
+      page,
+    }) => {
+      const nameOf = (id: string) => `Guest ${id.slice(1).padStart(4, "0")}`;
+
+      await seedEvent(page, {
+        participants: 60,
+        prizes: [{ name: "Prize", quantity: 5 }],
+        spinDurationMs: 2500,
+        drawStyle,
+      });
+      await page.goto("/stage");
+      await expect(page.getByRole("heading", { name: "Prize" })).toBeVisible();
+
+      await page.evaluate(() => {
+        const bc = new BroadcastChannel("lucky-draw-v3");
+        bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 1 });
+        bc.close();
+      });
+
+      await page.waitForTimeout(1000);
+      expect(await drawnWinnerIds(page)).toHaveLength(1);
+      await expect(page.getByTestId("reveal-winner")).toHaveCount(0);
+
+      const [id] = await drawnWinnerIds(page);
+      await expect(page.getByTestId("reveal-winner")).toContainText(nameOf(id), {
+        timeout: 20_000,
+      });
+    });
+  }
 });
 
 test.describe("scale", () => {

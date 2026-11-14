@@ -209,11 +209,34 @@ to preserve:
   payline a second after landing).
 - **Canvas, not DOM.** One element per name is the v2 failure that "500 participants do not
   inflate the DOM" catches. The only DOM text is the count line and, once landed, the winner
-  overlay (`data-testid="wall-winner"`) — it must not exist before the reveal. Past the point
+  overlay (`data-testid="reveal-winner"`) — it must not exist before the reveal. Past the point
   where text would drop under `MIN_FONT` the wall draws dots, and gives the dots their names back
   once 40 or fewer remain.
 - The canvas exposes `data-pool-size` and `data-alive` for tests; `e2e/draw.spec.ts` → "the wall"
   checks it lands on exactly the committed winner without naming them early.
+
+### Draw styles (`components/stage/reveals/`)
+
+The wall is one of five styles, chosen in Setup → Presentation (`settings.drawStyle`, default
+`"wall"`): `wall`, `flap` (split-flap board), `envelope` (card turned over), `letters` (letter reels
+narrow the field, then a slow name reel — plan in `lib/stage/letter-plan.ts`, unit-tested) and
+`reel` (the original drum, restyled). `DrawReveal` switches between them; every style takes the
+same `RevealProps` and keeps the contract written in `reveals/types.ts`:
+
+- Reveal the committed `targetId`, never pick. Key the run on `targetId` alone and read everything
+  else through a ref when it starts — including `durationMs`, which changes the moment the engine
+  moves to `revealing` (its pending count drops); as an effect dependency it restarts the reveal.
+- The final beat waits for `landed`. The stage passes `durationMs` from the engine's own
+  `spinDuration()` (suspense included), so a style's build-up lines up with the engine's spin.
+- Nothing marks a name as the winner before `landed`. Showing the winner among others on the way
+  is fine (the wall lists everyone, a reel passes them); singling them out is not. Each style
+  renders `data-testid="reveal-winner"` only once landed — `e2e/draw.spec.ts` → "every draw style"
+  runs that check for all five. A new style must pass it.
+
+The stage holds a style change until it is idle (adjusted during render, not in an effect), so a
+switch from setup mid-draw never unmounts a reveal that is halfway to the winner. Names that can be
+Latin or Khmer use `.name-mixed` (Geist first, Noto Sans Khmer for Khmer glyphs) rather than `.km`,
+which puts Noto first and renders Latin names in the wrong face.
 
 ## Comment style
 

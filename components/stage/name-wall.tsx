@@ -471,7 +471,7 @@ export function NameWall({
         />
         {winnerName ? (
           <div
-            data-testid="wall-winner"
+            data-testid="reveal-winner"
             className="reveal-rise pointer-events-none absolute -inset-10 flex flex-col items-center justify-center gap-[2vh]"
             style={{
               background:

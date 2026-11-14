@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { DRAW_STYLE_META } from "@/components/stage/reveals/meta";
+import { DRAW_STYLES } from "@/lib/domain/types";
 import { useAssetUrl } from "@/lib/hooks/use-asset-url";
 import { storeAudio, storeImage } from "@/lib/persist/assets";
 import { useEventStore } from "@/lib/store/event-store";
@@ -45,6 +47,51 @@ export function PresentationPanel() {
 
         <Separator className="bg-muted" />
 
+        {/* Draw style. Presentation only — every style reveals the winner the
+            engine already committed — so it is safe to change between draws.
+            The stage holds a change until it is idle, so switching mid-draw
+            never swaps out a reveal that is halfway to the winner. */}
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-3 text-sm font-medium text-foreground/75">
+            Draw style
+          </legend>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {DRAW_STYLES.map((style) => {
+              const meta = DRAW_STYLE_META[style];
+              const selected = (settings.drawStyle ?? "wall") === style;
+              return (
+                <label
+                  key={style}
+                  className={`flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors ${
+                    selected
+                      ? "border-foreground bg-muted/60"
+                      : "border-border hover:bg-muted/40"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="draw-style"
+                    value={style}
+                    checked={selected}
+                    onChange={() => patch({ drawStyle: style })}
+                    className="mt-0.5 size-4 shrink-0 accent-foreground"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium text-foreground">
+                      {meta.label}
+                    </span>
+                    <span className="text-xs leading-relaxed text-muted-foreground">
+                      {meta.hint}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <Separator className="bg-muted" />
+
         {/* Timing. Sliders show the value in the label, because the operator
             sets these against a run-of-show measured in seconds. */}
         <div className="grid gap-7 sm:grid-cols-2">
@@ -74,7 +121,7 @@ export function PresentationPanel() {
           <ToggleRow
             id="sound"
             label="Sound effects"
-            hint="A tick on every knock-out round, plus a hit on each reveal."
+            hint="A tick as the reveal moves, plus a hit on each winner."
             checked={settings.soundEnabled}
             onChange={(soundEnabled) => patch({ soundEnabled })}
           />
