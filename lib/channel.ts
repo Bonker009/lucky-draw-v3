@@ -1,6 +1,56 @@
-import type { StoredEvent } from "@/lib/domain/types";
+import type { Settings, StoredEvent } from "@/lib/domain/types";
 
 export const CHANNEL_NAME = "lucky-draw-v3";
+
+/**
+ * The settings the remote may change mid-show: how the draw *looks*, never
+ * what it picks. The seed and the prize order stay out on purpose — the seed
+ * is in the published commitment, and changing either from a phone mid-event
+ * is not something anyone should be able to do by accident.
+ */
+export type LiveSettings = Pick<
+  Settings,
+  | "spinDurationMs"
+  | "revealHoldMs"
+  | "suspenseScaling"
+  | "soundEnabled"
+  | "reducedMotionOverride"
+>;
+
+/**
+ * Floors only. The operator sets these against a run-of-show and may want a
+ * 30-second spin for the grand prize, so there is no ceiling; the floor exists
+ * because a zero-length spin has nothing to animate.
+ */
+export const TIMING_LIMITS = {
+  spinDurationMs: { min: 100 },
+  revealHoldMs: { min: 0 },
+} as const;
+
+/**
+ * Keep only the live keys, with sane values. The stage runs this on every
+ * `cmd:patchSettings`, because a BroadcastChannel message is just data — any
+ * tab on the origin can post one.
+ */
+export function sanitizeLiveSettings(patch: unknown): Partial<LiveSettings> {
+  if (!patch || typeof patch !== "object") return {};
+  const p = patch as Record<string, unknown>;
+  const out: Partial<LiveSettings> = {};
+  for (const key of ["spinDurationMs", "revealHoldMs"] as const) {
+    const v = p[key];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[key] = Math.round(Math.max(TIMING_LIMITS[key].min, v));
+    }
+  }
+  for (const key of [
+    "suspenseScaling",
+    "soundEnabled",
+    "reducedMotionOverride",
+  ] as const) {
+    if (typeof p[key] === "boolean") out[key] = p[key];
+  }
+  return out;
+}
 
 /** Commands travel control -> stage. The stage is the only writer. */
 export type Command =
@@ -9,7 +59,8 @@ export type Command =
   | { kind: "cmd:undo" }
   | { kind: "cmd:selectPrize"; prizeId: string }
   | { kind: "cmd:nextPrize" }
-  | { kind: "cmd:setSound"; enabled: boolean }
+  /** Timing, sound and motion — see `LiveSettings`. Committed by the stage. */
+  | { kind: "cmd:patchSettings"; patch: Partial<LiveSettings> }
   | { kind: "cmd:dismissWinner" }
   /**
    * Put the photo-call board on the projector: every winner of one prize, or
@@ -31,6 +82,12 @@ export type Broadcast =
       pending: number;
       /** Which photo-call board is up, if any. */
       roster?: string | null;
+      /**
+       * How many winners, in log order, the projector has revealed. During a
+       * spin the log already holds the winner the drum is heading for; a
+       * remote must not show more than this or it spoils the reveal.
+       */
+      shown?: number;
     };
 
 export type ChannelMessage = Command | Broadcast;

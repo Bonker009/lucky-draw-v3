@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import Link from "next/link";
 import { Backdrop } from "@/components/stage/backdrop";
 import { Confetti, type ConfettiHandle } from "@/components/stage/confetti";
+import { Cabinet } from "@/components/stage/cabinet";
 import { PhotoCall, ROSTER_ALL } from "@/components/stage/photo-call";
 import { Reel } from "@/components/stage/reel";
 import { WinnersRail } from "@/components/stage/winners-rail";
@@ -26,6 +34,23 @@ export default function StagePage() {
   const quality = useFrameBudget();
   const reducedMotion = usePrefersReducedMotion();
   const { isFullscreen, toggle } = useFullscreen();
+
+  // The control bar shows on mouse movement and fades after a short idle, so
+  // the audience never sees buttons but the operator can always reach them.
+  const [controlsVisible, setControlsVisible] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onMove = () => {
+      setControlsVisible(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setControlsVisible(false), 2500);
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      clearTimeout(timer);
+    };
+  }, []);
   const confettiRef = useRef<ConfettiHandle>(null);
 
   const sound = useSound({
@@ -44,7 +69,6 @@ export default function StagePage() {
   const flashRef = useRef<HTMLDivElement>(null);
 
   const onWinnerRevealed = useCallback(() => {
-    sound.stopBed();
     sound.playWin();
 
     // One frame of light across the whole projector, on the same beat as the
@@ -82,15 +106,12 @@ export default function StagePage() {
   const prize = selectedPrizeId
     ? state.prizesById.get(selectedPrizeId)
     : undefined;
-  const remaining = selectedPrizeId
-    ? remainingFor(state, selectedPrizeId)
-    : 0;
+  const remaining = selectedPrizeId ? remainingFor(state, selectedPrizeId) : 0;
   const awardedHere = selectedPrizeId
     ? (state.awardedByPrize.get(selectedPrizeId) ?? 0)
     : 0;
 
   const backgroundUrl = useAssetUrl(state.settings.backgroundAssetId);
-
   // The photo-call board can show a prize other than the selected one, so it
   // resolves its own image rather than borrowing the stage's.
   const rosterPrize =
@@ -99,13 +120,12 @@ export default function StagePage() {
       : undefined;
   const rosterPrizeImageUrl = useAssetUrl(rosterPrize?.imageAssetId);
 
-  // Names for the reel to blur past. Capped: the reel only samples from it,
-  // and a 5000-entry array copied on every render is pure waste.
+  // Everyone still in the running: the reel puts every one of them past the
+  // payline on each spin. Uncapped on purpose — a 300 cap meant that at a
+  // bigger event some people could never appear on the drum at all. Memoised
+  // on `state`, so it is rebuilt per commit, not per frame.
   const poolNames = useMemo(
-    () =>
-      eligibleParticipants(state)
-        .slice(0, 300)
-        .map((p) => p.name),
+    () => eligibleParticipants(state).map((p) => p.name),
     [state],
   );
 
@@ -142,15 +162,29 @@ export default function StagePage() {
     ? state.participantsById.get(snapshot.revealed)
     : undefined;
 
+  // The photo session gets its own cue, whether it was opened here or from
+  // /control. Closing the board cuts it off rather than letting 8 s run on.
   useEffect(() => {
-    if (spinning) sound.startBed();
-  }, [spinning, sound]);
+    if (!rosterScope) return;
+    sound.playPhotoCall();
+    return () => sound.stopPhotoCall();
+  }, [rosterScope, sound]);
 
   // Read through a ref so the key handler is not rebound on every state
   // change, and never reads a stale roster scope.
-  const latestRoster = useRef({ rosterScope, selectedPrizeId, showRoster, hideRoster });
+  const latestRoster = useRef({
+    rosterScope,
+    selectedPrizeId,
+    showRoster,
+    hideRoster,
+  });
   useEffect(() => {
-    latestRoster.current = { rosterScope, selectedPrizeId, showRoster, hideRoster };
+    latestRoster.current = {
+      rosterScope,
+      selectedPrizeId,
+      showRoster,
+      hideRoster,
+    };
   }, [rosterScope, selectedPrizeId, showRoster, hideRoster]);
 
   // Keyboard: space draws one, S stops, P photo call, F fullscreen.
@@ -219,13 +253,6 @@ export default function StagePage() {
     );
   }
 
-  // Everything the audience can read is the revealed truth, not the committed
-  // one. See `unrevealed` above.
-  const shownRemaining = remaining + unrevealed;
-  const awarded = (prize?.quantity ?? 0) - shownRemaining;
-  const eligible =
-    state.participants.length - state.winnerByParticipant.size + unrevealed;
-
   return (
     /*
      * A fixed one-viewport grid: h-dvh, overflow-hidden, and a middle row that
@@ -237,7 +264,7 @@ export default function StagePage() {
      * the one screen in the building that nobody can scroll.
      */
     <main
-      className="dark relative grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden bg-base-900"
+      className="dark relative grid h-dvh grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-base-900"
       data-motion={motionOff ? "off" : "on"}
     >
       <Backdrop imageUrl={backgroundUrl} quality={quality} />
@@ -249,15 +276,13 @@ export default function StagePage() {
         className="pointer-events-none absolute inset-0 z-40 bg-gold-bright opacity-0"
       />
 
-      {/* ---- Top bar ---------------------------------------------------- */}
-      <header className="relative z-30 flex items-center gap-4 px-8 pt-5">
-        <p className="stage-label truncate text-[0.62rem] text-ink-500">
-          {state.settings.eventName}
-        </p>
-
-        {/* Status as pills rather than full-width banners: on a projector a
-            banner row costs vertical space the reel needs, permanently. */}
-        <div className="flex items-center gap-2">
+      {/* ---- Status ----------------------------------------------------- */}
+      {/* The stage is only the machine and the winners. These two pills are
+          the exception, and only appear when true: drawing in a read-only
+          window does nothing, and a rehearsal draw is never saved — both are
+          things the operator must not miss. */}
+      {rehearsal || !isOwner ? (
+        <div className="pointer-events-none absolute left-6 top-4 z-30 flex items-center gap-2">
           {rehearsal ? (
             <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-medium text-gold-bright">
               Rehearsal — not saved
@@ -269,11 +294,7 @@ export default function StagePage() {
             </span>
           ) : null}
         </div>
-
-        <p className="ml-auto shrink-0 text-sm tabular-nums text-ink-500">
-          {eligible} eligible
-        </p>
-      </header>
+      ) : null}
 
       {/* ---- Photo call -------------------------------------------------- */}
       {/* Takes the whole stage area: during a photo session the room is
@@ -294,12 +315,13 @@ export default function StagePage() {
           from a photo call does not rebuild the strip mid-show. The `hidden`
           attribute would lose to Tailwind's `flex`, so the class does it. */}
       <div
-        className={
-          rosterScope ? "hidden" : "relative z-20 flex min-h-0"
-        }
+        className={rosterScope ? "hidden" : "relative z-20 flex min-h-0"}
         aria-hidden={Boolean(rosterScope)}
       >
-        <div className="relative grid min-h-0 flex-1 grid-rows-[1fr_auto_1fr] px-8">
+        {/* Centred flex column, not a three-row grid: the cabinet is one
+            block now, and with the old [1fr_auto_1fr] rows it landed in the
+            top row and was clipped against the top of the viewport. */}
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-8">
           {/* A scrim local to the centre column. An uploaded background is
               usually a busy photo, and without this the names compete with it
               exactly where they most need to win. */}
@@ -312,49 +334,25 @@ export default function StagePage() {
             }}
           />
 
-          <header className="flex min-h-0 flex-col items-center justify-end gap-2 pb-[3vh]">
-            {/* Keyed on the prize, so switching prizes remounts and replays
-                the entrance rather than swapping the text silently. */}
-            <h1
-              key={prize?.id ?? "none"}
-              className="prize-swap max-w-[20ch] text-balance text-center text-[clamp(1.75rem,4vh,3.25rem)] font-semibold text-gold"
-            >
-              {prize?.name ?? "Select a prize"}
-            </h1>
+          {/* The prize is named for screen readers only: the projector shows
+              just the machine, and the presenter picks the prize on /control.
+              The e2e suite also waits on this heading as its ready signal. */}
+          <h1 className="sr-only">{prize?.name ?? "Select a prize"}</h1>
 
-            {/* Stock as pips while it is countable, as text once it is not.
-                Twenty dots is a glanceable "nearly done"; two hundred is
-                noise. */}
-            {prize && prize.quantity <= 20 ? (
-              <div
-                className="flex flex-wrap items-center justify-center gap-1.5"
-                role="img"
-                aria-label={`${shownRemaining} of ${prize.quantity} remaining`}
-              >
-                {Array.from({ length: prize.quantity }, (_, i) => (
-                  <span
-                    key={i}
-                    className={`size-2 rounded-full ${
-                      i < awarded ? "bg-gold/25" : "bg-gold"
-                    }`}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm tabular-nums text-ink-300">
-                {shownRemaining} of {prize?.quantity ?? 0} remaining
-              </p>
-            )}
-          </header>
-
-          <div className="mx-auto flex w-full max-w-4xl items-center justify-center">
-            <Reel
-              pool={poolNames}
-              target={reelTargetName}
-              landed={snapshot.revealed !== null}
-              durationMs={state.settings.spinDurationMs}
-              quality={quality}
-              reducedMotion={motionOff}
+          {/* The machine: just the drum. */}
+          <div className="flex min-h-0 w-full items-center justify-center">
+            <Cabinet
+              drum={
+                <Reel
+                  pool={poolNames}
+                  target={reelTargetName}
+                  landed={snapshot.revealed !== null}
+                  durationMs={state.settings.spinDurationMs}
+                  quality={quality}
+                  reducedMotion={motionOff}
+                  onTick={sound.tick}
+                />
+              }
             />
           </div>
 
@@ -400,62 +398,92 @@ export default function StagePage() {
           </button>
         </div>
       ) : null}
+      {/* Overlaid and hidden until the mouse moves, so the projector shows
+          only the machine and the winners. Keyboard shortcuts work either
+          way, and focus-within keeps it visible while tabbing through. */}
       <footer
-        className={`relative z-30 flex items-center justify-center gap-3 px-8 pb-5 pt-2 transition-opacity duration-500 ${
-          busy ? "opacity-25" : "opacity-100"
+        className={`absolute inset-x-0 bottom-0 z-30 flex items-center justify-center gap-3 bg-gradient-to-t from-base-900/90 to-transparent px-8 pb-5 pt-10 transition-opacity duration-500 focus-within:pointer-events-auto focus-within:opacity-100 ${
+          controlsVisible && !busy
+            ? "opacity-100"
+            : "pointer-events-none opacity-0"
         }`}
       >
-        <button
-          type="button"
-          onClick={() => draw(1)}
-          disabled={busy || remaining === 0}
-          className="rounded-lg bg-gold px-6 py-2.5 font-medium text-base-900 disabled:opacity-40"
-        >
-          Draw
-        </button>
-        <button
-          type="button"
-          onClick={stop}
-          disabled={!busy}
-          className="rounded-lg border border-ink-500/50 px-6 py-2.5 text-ink-100 disabled:opacity-40"
-        >
-          Stop
-        </button>
+        {/* Draw and Stop are hidden during a photo call: the board is for
+            finding names, and drawing closes it anyway (Space still works). */}
+        {rosterScope ? null : (
+          <>
+            <StageButton
+              primary
+              shortcut="Space"
+              onClick={() => draw(1)}
+              disabled={busy || remaining === 0}
+            >
+              Draw
+            </StageButton>
+            <StageButton shortcut="S" onClick={stop} disabled={!busy}>
+              Stop
+            </StageButton>
+            <span aria-hidden className="mx-1 h-6 w-px bg-ink-500/30" />
+          </>
+        )}
         {/* Photo call: the whole point is to get every winner of this prize
             on screen at once so they can be called up together. */}
         {rosterScope ? (
-          <button
-            type="button"
-            onClick={hideRoster}
-            className="rounded-lg border border-gold px-6 py-2.5 text-gold-bright"
-          >
+          <StageButton primary shortcut="P" onClick={hideRoster}>
             Close photo call
-          </button>
+          </StageButton>
         ) : (
-          <button
-            type="button"
+          <StageButton
+            shortcut="P"
             onClick={() => selectedPrizeId && showRoster(selectedPrizeId)}
             disabled={busy || !selectedPrizeId || awardedHere === 0}
-            className="rounded-lg border border-ink-500/50 px-6 py-2.5 text-ink-100 disabled:opacity-40"
           >
             Photo call
-          </button>
+          </StageButton>
         )}
-
-        <button
-          type="button"
-          onClick={() => void toggle()}
-          className="rounded-lg border border-ink-500/50 px-6 py-2.5 text-ink-100"
-        >
+        <StageButton shortcut="F" onClick={() => void toggle()}>
           {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-        </button>
-
-        <p className="ml-4 hidden text-xs text-ink-500 sm:block">
-          Space to draw · S to stop · P for photo call · F for fullscreen
-          {isFullscreen ? "" : " · open /control on your laptop"}
-        </p>
+        </StageButton>
       </footer>
-
     </main>
+  );
+}
+
+/**
+ * One control-bar button with its keyboard shortcut shown on it. The shortcuts
+ * used to be a separate line of prose beside the buttons, which read as clutter
+ * on the projector; a key chip says the same thing where the eye already is.
+ */
+function StageButton({
+  primary = false,
+  shortcut,
+  children,
+  ...props
+}: ComponentProps<"button"> & { primary?: boolean; shortcut: string }) {
+  return (
+    <button
+      type="button"
+      aria-keyshortcuts={
+        shortcut === "Space" ? "Space" : shortcut.toLowerCase()
+      }
+      {...props}
+      className={`inline-flex items-center gap-2.5 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 ${
+        primary
+          ? "bg-gold text-base-900 hover:bg-gold-bright"
+          : "border border-ink-500/40 text-ink-100 hover:border-ink-300/60 hover:bg-ink-100/5"
+      }`}
+    >
+      {children}
+      <kbd
+        aria-hidden
+        className={`rounded px-1.5 py-0.5 font-sans text-[0.65rem] leading-none ${
+          primary
+            ? "bg-base-900/15 text-base-900/70"
+            : "bg-ink-100/10 text-ink-300"
+        }`}
+      >
+        {shortcut}
+      </kbd>
+    </button>
   );
 }

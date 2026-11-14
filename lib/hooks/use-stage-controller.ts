@@ -5,7 +5,11 @@ import { computeDraw } from "@/lib/domain/draw";
 import { nextAvailablePrize, remainingFor } from "@/lib/domain/selectors";
 import { getEngine } from "@/lib/engine/draw-engine";
 import { useEngineSnapshot } from "@/lib/engine/use-draw-engine";
-import { getChannel, type ChannelMessage } from "@/lib/channel";
+import {
+  getChannel,
+  sanitizeLiveSettings,
+  type ChannelMessage,
+} from "@/lib/channel";
 import { useEventStore } from "@/lib/store/event-store";
 import { useWriterLease } from "./use-writer-lease";
 import { usePrefersReducedMotion } from "./use-frame-budget";
@@ -52,6 +56,9 @@ export function useStageController(options: {
   // null means "follow the running order"; an explicit id pins the choice.
   const [pinnedPrizeId, setPinnedPrizeId] = useState<string | null>(null);
   const [rosterScope, setRosterScope] = useState<string | null>(null);
+  // How many winners existed when the current run started. Taken inside
+  // draw(), before the engine commits anything, so it never races a commit.
+  const [runBaseline, setRunBaseline] = useState(0);
 
   // Keep the newest values in a ref so the command handler never reads a
   // stale copy — the exact class of bug that broke v2's Stop button.
@@ -60,11 +67,38 @@ export function useStageController(options: {
   const selectedPrizeId =
     pinnedPrizeId ?? (ready ? (nextAvailablePrize(state)?.id ?? null) : null);
 
-  const latest = useRef({ state, selectedPrizeId, isOwner, rosterScope });
+  /**
+   * How many winners, in log order, the audience has actually seen.
+   *
+   * The engine commits before it spins, so during a run the log is ahead of
+   * the drum. Other windows are told this number rather than left to infer it
+   * from phases: the next commit lands while the phase still says
+   * "revealing", and a remote that trusted the phase flashed the name before
+   * the drum had even started. Once the run is over everything is shown,
+   * including a winner left committed by Stop.
+   */
+  const running = snapshot.phase === "spinning" || snapshot.phase === "revealing";
+  const shownWinners = running
+    ? Math.min(state.winners.length, runBaseline + snapshot.batch.length)
+    : state.winners.length;
+
+  const latest = useRef({
+    state,
+    selectedPrizeId,
+    isOwner,
+    rosterScope,
+    shownWinners,
+  });
 
   useEffect(() => {
-    latest.current = { state, selectedPrizeId, isOwner, rosterScope };
-  }, [state, selectedPrizeId, isOwner, rosterScope]);
+    latest.current = {
+      state,
+      selectedPrizeId,
+      isOwner,
+      rosterScope,
+      shownWinners,
+    };
+  }, [state, selectedPrizeId, isOwner, rosterScope, shownWinners]);
 
   useEffect(() => {
     void load();
@@ -93,6 +127,7 @@ export function useStageController(options: {
 
       // A draw takes the screen back from the photo-call board.
       setRosterScope(null);
+      setRunBaseline(latest.current.state.winners.length);
 
       const settings = latest.current.state.settings;
 
@@ -196,6 +231,17 @@ export function useStageController(options: {
         case "cmd:dismissWinner":
           if (latest.current.isOwner) dismiss();
           break;
+        case "cmd:patchSettings": {
+          // A settings change is still a write, so only the lease holder
+          // commits it; the broadcast brings every other window along. It
+          // takes effect from the next draw — the engine reads timing when a
+          // run starts, so a batch already in flight keeps its pace.
+          if (!latest.current.isOwner) return;
+          const patch = sanitizeLiveSettings(message.patch);
+          if (Object.keys(patch).length === 0) return;
+          void commit([{ type: "SETTINGS_PATCHED", patch }]).catch(() => {});
+          break;
+        }
         case "cmd:showRoster":
           showRoster(message.scope);
           break;
@@ -214,6 +260,7 @@ export function useStageController(options: {
             revealed: current.revealed,
             pending: current.pending,
             roster: latest.current.rosterScope,
+            shown: latest.current.shownWinners,
           });
           break;
         }
@@ -231,6 +278,7 @@ export function useStageController(options: {
     return unsubscribe;
   }, [
     applyRemote,
+    commit,
     dismiss,
     draw,
     hideRoster,
@@ -252,9 +300,11 @@ export function useStageController(options: {
       revealed: snapshot.revealed,
       pending: snapshot.pending,
       roster: rosterScope,
+      shown: shownWinners,
     });
   }, [
     rosterScope,
+    shownWinners,
     options.isWriter,
     snapshot.phase,
     snapshot.revealed,

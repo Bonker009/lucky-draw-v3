@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { participantName } from "@/lib/domain/selectors";
 import type { DrawState } from "@/lib/domain/types";
 
@@ -14,17 +14,18 @@ const EDGE_PAUSE_MS = 2600;
 /**
  * Column count and type size.
  *
- * Four columns is the house layout. The only exceptions are very short
- * lists, where spreading three names across four columns leaves a mostly
- * empty board and reads as a mistake.
+ * The list shares the screen with the prize panel, so three columns is the
+ * most it takes — four in two-thirds of the width truncates ordinary names.
+ * Very short lists stay in one column, where spreading three names across
+ * several leaves a mostly empty board and reads as a mistake.
  *
  * The list scrolls, so the names never shrink to make a long list fit: the
  * size is chosen purely for legibility from the back of the room.
  */
 function layoutFor(count: number) {
-  if (count <= 4) return { columns: 1, size: "clamp(3rem, 9.5vh, 7rem)" };
-  if (count <= 8) return { columns: 2, size: "clamp(2.25rem, 6.5vh, 4.5rem)" };
-  return { columns: 4, size: "clamp(1.5rem, 4vh, 2.6rem)" };
+  if (count <= 4) return { columns: 1, size: "clamp(2.75rem, 8.5vh, 6rem)" };
+  if (count <= 10) return { columns: 2, size: "clamp(2rem, 5.5vh, 4rem)" };
+  return { columns: 3, size: "clamp(1.4rem, 3.8vh, 2.4rem)" };
 }
 
 /**
@@ -66,6 +67,20 @@ export function PhotoCall({
   }, [isAll, scope, state]);
 
   const layout = layoutFor(winners.length);
+
+  // Whether the list is taller than its box. A short list is centred and left
+  // unmasked; the edge fade is only for names scrolling in and out, and on a
+  // list that fits it just dimmed the first row for no reason.
+  const [overflowing, setOverflowing] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setOverflowing(el.scrollHeight - el.clientHeight > 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [winners.length, layout.columns]);
 
   // Continuous scroll, driven by rAF so the speed is the same whatever the
   // list length, and paused at both ends.
@@ -116,39 +131,48 @@ export function PhotoCall({
   }, [reducedMotion, winners.length, layout.columns]);
 
   return (
+    // Prize on the left, winners on the right: the prize is what the photo is
+    // of, and giving it its own column lets the image be big enough to see
+    // instead of a thumbnail above a list.
     <section
-      className="flex h-full w-full flex-col items-center gap-[2vh] px-[3vw] py-[2.5vh]"
+      className="grid h-full w-full grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)] gap-[3vw] px-[3vw] py-[2.5vh]"
       aria-labelledby="photo-call-heading"
     >
-      <header className="flex shrink-0 flex-col items-center gap-2 text-center">
+      <header className="flex min-h-0 flex-col items-center justify-center gap-[1.5vh] border-r border-gold/15 pr-[3vw] text-center">
+        <p className="stage-label text-gold">Photo session</p>
         {prizeImageUrl && !isAll ? (
           // eslint-disable-next-line @next/next/no-img-element -- blob: URL from IndexedDB, downscaled on upload
           <img
             src={prizeImageUrl}
             alt=""
-            className="size-[8vh] rounded-2xl object-cover ring-1 ring-gold/40"
+            className="aspect-square min-h-0 w-full max-w-[52vh] shrink rounded-3xl object-cover ring-1 ring-gold/40"
           />
         ) : null}
-        <p className="stage-label text-gold">Photo session</p>
         <h1
           id="photo-call-heading"
-          className="text-[clamp(1.5rem,3.6vh,2.75rem)] font-semibold leading-tight text-ink-100"
+          className="text-balance text-[clamp(1.75rem,4.5vh,3.5rem)] font-semibold leading-tight text-gold"
         >
           {isAll ? "All winners" : (prize?.name ?? "Winners")}
         </h1>
-        <p className="text-[clamp(0.85rem,1.6vh,1.1rem)] text-ink-300">
+        <p className="text-[clamp(0.95rem,2vh,1.4rem)] text-ink-300">
           {winners.length} {winners.length === 1 ? "winner" : "winners"}
         </p>
       </header>
 
       {winners.length === 0 ? (
-        <p className="text-ink-500">No winners drawn for this prize yet.</p>
+        <p className="self-center text-center text-ink-500">
+          No winners drawn for this prize yet.
+        </p>
       ) : (
         <ol
           ref={scrollRef}
           // reel-mask fades the top and bottom edges, so names enter and leave
-          // the scroll instead of being sliced off by a hard boundary.
-          className="reel-mask grid min-h-0 w-full flex-1 content-start gap-x-[2vw] gap-y-[0.5vh] overflow-y-hidden"
+          // the scroll instead of being sliced off by a hard boundary. Only a
+          // list that fits is centred — centring an overflowing one would
+          // push its first rows out of reach above the top.
+          className={`grid h-full min-h-0 w-full gap-x-[2vw] gap-y-[0.5vh] overflow-y-hidden ${
+            overflowing ? "reel-mask content-start" : "content-center"
+          } ${layout.columns === 1 ? "justify-items-center" : ""}`}
           style={{
             gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
           }}

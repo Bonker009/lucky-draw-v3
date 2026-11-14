@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { drawnWinnerIds, seedEvent } from "./helpers";
+import { drawnWinnerIds, readLog, seedEvent } from "./helpers";
 
 /**
  * These tests exist because of two specific failures at last year's event:
@@ -318,6 +318,183 @@ test.describe("control window", () => {
 
     expect((await drawnWinnerIds(page)).length).toBe(1);
     await control.close();
+  });
+
+  async function openLinkedControl(
+    context: import("@playwright/test").BrowserContext,
+    page: import("@playwright/test").Page,
+  ) {
+    await seedEvent(page, {
+      participants: 80,
+      prizes: [{ name: "Grand Prize", quantity: 4 }],
+      spinDurationMs: 300,
+      revealHoldMs: 100,
+    });
+    await page.goto("/stage");
+    await expect(page.getByRole("heading", { name: "Grand Prize" })).toBeVisible();
+    const control = await context.newPage();
+    await control.goto("/control");
+    const drawButton = control.getByRole("button", { name: "Draw", exact: true });
+    await expect(drawButton).toBeEnabled({ timeout: 15_000 });
+    return { control, drawButton };
+  }
+
+  test("space draws once, even when held down", async ({ context, page }) => {
+    const { control } = await openLinkedControl(context, page);
+
+    // Auto-repeat arrives as repeated keydowns with `repeat: true`.
+    await control.keyboard.down(" ");
+    await control.keyboard.down(" ");
+    await control.keyboard.down(" ");
+    await control.keyboard.up(" ");
+
+    await expect
+      .poll(async () => (await drawnWinnerIds(page)).length, { timeout: 15_000 })
+      .toBe(1);
+    await page.waitForTimeout(1500);
+    expect((await drawnWinnerIds(page)).length).toBe(1);
+    await control.close();
+  });
+
+  test("undo needs a second press", async ({ context, page }) => {
+    const { control, drawButton } = await openLinkedControl(context, page);
+    await drawButton.click();
+    await expect
+      .poll(async () => (await drawnWinnerIds(page)).length, { timeout: 15_000 })
+      .toBe(1);
+
+    const undo = control.getByRole("button", { name: "Undo last" });
+    await expect(undo).toBeEnabled({ timeout: 15_000 });
+    await undo.click();
+    await page.waitForTimeout(500);
+    expect((await drawnWinnerIds(page)).length).toBe(1);
+
+    await control.getByRole("button", { name: "Confirm undo" }).click();
+    await expect
+      .poll(async () => (await drawnWinnerIds(page)).length, { timeout: 10_000 })
+      .toBe(0);
+    await control.close();
+  });
+
+  test("toggles the stage sound", async ({ context, page }) => {
+    const { control } = await openLinkedControl(context, page);
+    // The seed starts muted.
+    await control.getByRole("button", { name: "Unmute stage sound" }).click();
+    await expect(
+      control.getByRole("button", { name: "Mute stage sound" }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const log = await readLog(page);
+    expect(
+      log.some(
+        (e) =>
+          e.event.type === "SETTINGS_PATCHED" &&
+          (e.event as { patch?: { soundEnabled?: boolean } }).patch
+            ?.soundEnabled === true,
+      ),
+    ).toBe(true);
+    await control.close();
+  });
+
+  test("never shows a winner before the drum lands", async ({
+    context,
+    page,
+  }) => {
+    const nameOf = (id: string) => `Guest ${id.slice(1).padStart(4, "0")}`;
+    await seedEvent(page, {
+      participants: 50,
+      prizes: [{ name: "Grand Prize", quantity: 3 }],
+      spinDurationMs: 3000,
+      revealHoldMs: 300,
+    });
+    await page.goto("/stage");
+    await expect(page.getByRole("heading", { name: "Grand Prize" })).toBeVisible();
+    const control = await context.newPage();
+    await control.goto("/control");
+    const drawButton = control.getByRole("button", { name: "Draw", exact: true });
+    await expect(drawButton).toBeEnabled({ timeout: 15_000 });
+
+    await drawButton.click();
+    await page.waitForTimeout(1200);
+
+    // Committed, but the drum is still turning.
+    const committed = await drawnWinnerIds(page);
+    expect(committed).toHaveLength(1);
+    const winners = control.getByRole("region", { name: "Winners" });
+    await expect(winners).not.toContainText(nameOf(committed[0]));
+    await expect(winners).toContainText("0 of 3");
+
+    // Once it lands, the remote catches up.
+    await expect(winners).toContainText(nameOf(committed[0]), { timeout: 15_000 });
+    await expect(winners).toContainText("1 of 3");
+    await control.close();
+  });
+
+  test("sets the spin length to any typed value", async ({ context, page }) => {
+    const { control } = await openLinkedControl(context, page);
+    const spin = control.getByLabel("Spin in seconds");
+    await spin.fill("27.5");
+    await spin.press("Enter");
+
+    await expect
+      .poll(async () =>
+        (await readLog(page)).some(
+          (e) =>
+            e.event.type === "SETTINGS_PATCHED" &&
+            (e.event as { patch?: { spinDurationMs?: number } }).patch
+              ?.spinDurationMs === 27500,
+        ),
+      { timeout: 10_000 })
+      .toBe(true);
+    await expect(spin).toHaveValue("27.5");
+    await control.close();
+  });
+
+  test("notices when the stage goes away", async ({ context, page }) => {
+    const { control, drawButton } = await openLinkedControl(context, page);
+    await page.close();
+
+    await expect(control.getByText("Stage lost")).toBeVisible({ timeout: 10_000 });
+    await expect(drawButton).toBeDisabled();
+    await control.close();
+  });
+});
+
+test.describe("the reel", () => {
+  test("every eligible name goes past on a single spin", async ({ page }) => {
+    await seedEvent(page, {
+      participants: 60,
+      prizes: [{ name: "Prize", quantity: 5 }],
+      spinDurationMs: 2500,
+    });
+    await page.goto("/stage");
+    await expect(page.getByRole("heading", { name: "Prize" })).toBeVisible();
+
+    // Record every label the drum shows, frame by frame, for one spin.
+    const seen = await page.evaluate(async () => {
+      const names = new Set<string>();
+      const bc = new BroadcastChannel("lucky-draw-v3");
+      bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 1 });
+      bc.close();
+      const until = performance.now() + 4000;
+      while (performance.now() < until) {
+        document
+          .querySelectorAll(".reel-track span")
+          .forEach((el) => el.textContent && names.add(el.textContent));
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      return [...names];
+    });
+
+    const everyone = Array.from(
+      { length: 60 },
+      (_, i) => `Guest ${String(i).padStart(4, "0")}`,
+    );
+    const missing = everyone.filter((n) => !seen.includes(n));
+    expect(missing).toEqual([]);
+
+    // And the DOM stays flat: a window of rows, not one per participant.
+    expect(await page.locator(".reel-track > div").count()).toBeLessThan(10);
   });
 });
 

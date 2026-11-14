@@ -2,21 +2,53 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { assetUrl } from "@/lib/persist/assets";
+import { iQuestCompleteSound } from "@/lib/sounds/i-quest-complete";
+import { impactMetalHeavy004Sound } from "@/lib/sounds/impact-metal-heavy-004";
+import { jinglesSteel07Sound } from "@/lib/sounds/jingles-steel-07";
+import type { SoundAsset } from "@/lib/sounds/sound-types";
+import { tick001Sound } from "@/lib/sounds/tick-001";
 
 /**
  * Sound for the stage.
  *
- * The defaults are synthesised with WebAudio rather than shipped as files, so
- * the app has no audio assets to fetch and works from a cold cache with the
- * network unplugged. A custom win sound uploaded in setup overrides the
- * synthesised sting.
+ * The effects are soundcn assets (CC0, Kenney), which ship as base64 data URIs
+ * inside TypeScript modules — so there is still nothing to fetch, and the
+ * stage works from a cold cache with the network unplugged. They are decoded
+ * once, up front, into AudioBuffers; playing one is then just a buffer source.
  *
- * Note what is not here: v2 called load() before every play, which re-fetched
- * and re-decoded the mp3 on each winner.
+ * soundcn's own `useSound` hook is deliberately not used: it sets React state
+ * on every play, and the reel ticks ~20 times a second, which would re-render
+ * the whole stage for the length of every spin.
+ *
+ * A custom win sound uploaded in setup overrides the fanfare. Note what is not
+ * here: v2 called load() before every play, which re-fetched and re-decoded
+ * the mp3 on each winner.
  */
+
+const SOUNDS = {
+  tick: tick001Sound,
+  clunk: impactMetalHeavy004Sound,
+  fanfare: jinglesSteel07Sound,
+  photoCall: iQuestCompleteSound,
+} satisfies Record<string, SoundAsset>;
+
+type SoundName = keyof typeof SOUNDS;
+
+/** Ticks closer together than this merge into a buzz, so extras are dropped. */
+const MIN_TICK_GAP_S = 0.03;
+
+function decodeDataUri(ctx: AudioContext, dataUri: string) {
+  const binary = atob(dataUri.slice(dataUri.indexOf(",") + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return ctx.decodeAudioData(bytes.buffer);
+}
+
 export function useSound(options: { enabled: boolean; winAssetId?: string }) {
   const ctxRef = useRef<AudioContext | null>(null);
-  const bedRef = useRef<{ stop: () => void } | null>(null);
+  const buffersRef = useRef<Partial<Record<SoundName, AudioBuffer>>>({});
+  const photoCallRef = useRef<AudioBufferSourceNode | null>(null);
+  const lastTickRef = useRef(0);
   const customRef = useRef<HTMLAudioElement | null>(null);
   const enabledRef = useRef(options.enabled);
 
@@ -39,6 +71,40 @@ export function useSound(options: { enabled: boolean; winAssetId?: string }) {
     return ctxRef.current;
   }
 
+  // Decode everything at mount, not on first play: the first tick of the
+  // first spin must not wait on a decode. A suspended context decodes fine.
+  useEffect(() => {
+    const ctx = context();
+    if (!ctx) return;
+    for (const [name, asset] of Object.entries(SOUNDS)) {
+      decodeDataUri(ctx, asset.dataUri)
+        .then((buffer) => {
+          buffersRef.current[name as SoundName] = buffer;
+        })
+        // A sound that fails to decode is silent; it must never break a draw.
+        .catch(() => {});
+    }
+  }, []);
+
+  /** Fire-and-forget playback of a decoded effect. */
+  const play = useCallback(
+    (name: SoundName, volume: number, playbackRate = 1, when = 0) => {
+      if (!enabledRef.current) return null;
+      const ctx = context();
+      const buffer = buffersRef.current[name];
+      if (!ctx || !buffer) return null;
+      const source = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      source.buffer = buffer;
+      source.playbackRate.value = playbackRate;
+      gain.gain.value = volume;
+      source.connect(gain).connect(ctx.destination);
+      source.start(when ? ctx.currentTime + when : 0);
+      return source;
+    },
+    [],
+  );
+
   // Load a custom win sound, if one was uploaded.
   useEffect(() => {
     let cancelled = false;
@@ -58,14 +124,17 @@ export function useSound(options: { enabled: boolean; winAssetId?: string }) {
     };
   }, [options.winAssetId]);
 
-  const stopBed = useCallback(() => {
-    bedRef.current?.stop();
-    bedRef.current = null;
+  const stopPhotoCall = useCallback(() => {
+    try {
+      photoCallRef.current?.stop();
+    } catch {
+      // Already finished.
+    }
+    photoCallRef.current = null;
   }, []);
 
   useEffect(() => {
     return () => {
-      bedRef.current?.stop();
       customRef.current?.pause();
       void ctxRef.current?.close().catch(() => {});
       ctxRef.current = null;
@@ -74,15 +143,29 @@ export function useSound(options: { enabled: boolean; winAssetId?: string }) {
 
   useEffect(() => {
     if (!options.enabled) {
-      bedRef.current?.stop();
-      bedRef.current = null;
       customRef.current?.pause();
+      stopPhotoCall();
     }
-  }, [options.enabled]);
+  }, [options.enabled, stopPhotoCall]);
 
-  /** A rising two-note sting. */
+  /**
+   * One name crossing the payline. Called by the reel from its own frame loop,
+   * so it must stay cheap and must not touch React state.
+   */
+  const tick = useCallback(() => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    if (ctx.currentTime - lastTickRef.current < MIN_TICK_GAP_S) return;
+    lastTickRef.current = ctx.currentTime;
+    // A little pitch jitter, so a run of ticks sounds mechanical rather than
+    // like one sample on repeat.
+    play("tick", 0.35, 0.94 + Math.random() * 0.12);
+  }, [play]);
+
+  /** The reel stops with a clunk, then the fanfare. */
   const playWin = useCallback(() => {
     if (!enabledRef.current) return;
+    play("clunk", 0.7);
 
     const custom = customRef.current;
     if (custom) {
@@ -92,59 +175,14 @@ export function useSound(options: { enabled: boolean; winAssetId?: string }) {
       void custom.play().catch(() => {});
       return;
     }
+    play("fanfare", 0.8, 1, 0.08);
+  }, [play]);
 
-    const ctx = context();
-    if (!ctx) return;
+  /** The photo session opening. Stopped if the board closes before it ends. */
+  const playPhotoCall = useCallback(() => {
+    stopPhotoCall();
+    photoCallRef.current = play("photoCall", 0.7);
+  }, [play, stopPhotoCall]);
 
-    const now = ctx.currentTime;
-    for (const [i, freq] of [523.25, 659.25, 783.99, 1046.5].entries()) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.value = freq;
-      const start = now + i * 0.09;
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(0.22, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.65);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.7);
-    }
-  }, []);
-
-  /** A low pulsing bed while the reel spins. */
-  const startBed = useCallback(() => {
-    if (!enabledRef.current || bedRef.current) return;
-    const ctx = context();
-    if (!ctx) return;
-
-    const osc = ctx.createOscillator();
-    const lfo = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
-    const gain = ctx.createGain();
-
-    osc.type = "sawtooth";
-    osc.frequency.value = 82;
-    lfo.frequency.value = 6.5;
-    lfoGain.gain.value = 0.045;
-    gain.gain.value = 0.05;
-
-    lfo.connect(lfoGain).connect(gain.gain);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    lfo.start();
-
-    bedRef.current = {
-      stop: () => {
-        const t = ctx.currentTime;
-        gain.gain.cancelScheduledValues(t);
-        gain.gain.setValueAtTime(gain.gain.value, t);
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-        osc.stop(t + 0.25);
-        lfo.stop(t + 0.25);
-      },
-    };
-  }, []);
-
-  return { playWin, startBed, stopBed };
+  return { tick, playWin, playPhotoCall, stopPhotoCall };
 }

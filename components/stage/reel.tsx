@@ -1,29 +1,52 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Rng } from "@/lib/domain/rng";
 import type { Quality } from "@/lib/hooks/use-frame-budget";
 
 const VISIBLE_ROWS = 5;
 const MIN_ROW_HEIGHT = 64;
 const MAX_ROW_HEIGHT = 128;
-/** Share of the viewport height the drum is allowed to occupy. */
-const DRUM_VIEWPORT_SHARE = 0.46;
-/** Rows scrolled through before landing. Fixed, so the DOM never grows. */
+/**
+ * Share of the viewport height the drum is allowed to occupy.
+ *
+ * The drum is no longer alone: the marquee sign above it and the counter
+ * plinth below it are part of the same cabinet, and at 0.46 the three
+ * together overflowed the stage row and clipped the sign off the top.
+ */
+const DRUM_VIEWPORT_SHARE = 0.34;
+/**
+ * The shortest runway. With a small roster the shuffled names repeat until
+ * the drum has at least this many rows to build speed over.
+ */
 const RUNWAY = 34;
+/**
+ * Row nodes actually in the DOM: the visible rows plus one above and one
+ * below, so a row is never seen being recycled.
+ */
+const WINDOW_ROWS = VISIBLE_ROWS + 2;
 const CENTER_ROW = Math.floor(VISIBLE_ROWS / 2);
 
 /** How far past the payline the drum carries before rubber-banding back. */
 const OVERSHOOT_PX = 26;
 
-/** Peak motion blur at full tilt. Dropped entirely below full quality. */
-const MAX_BLUR_PX = 11;
+/**
+ * Peak motion blur at full tilt. Dropped entirely below full quality.
+ *
+ * Kept low deliberately. At 11px the names became grey smudges and the drum
+ * read as an empty box for the whole spin — the audience needs to see names
+ * streaming past, not evidence that something is moving.
+ */
+const MAX_BLUR_PX = 5;
 
 /** Marquee bulbs per strip. Fixed, like everything else in the drum. */
 const BULBS = 16;
 
 export interface ReelProps {
-  /** Names to blur past. Only a sample of these is ever in the DOM. */
+  /**
+   * Everyone still eligible. Every one of them passes the payline on every
+   * spin; only `WINDOW_ROWS` of them are in the DOM at any moment.
+   */
   pool: string[];
   /** The already-decided winner. The reel reveals it; it never chooses it. */
   target: string | null;
@@ -37,6 +60,11 @@ export interface ReelProps {
   /** From the frame budget. Blur is the first thing dropped when frames slip. */
   quality?: Quality;
   onLanded?: () => void;
+  /**
+   * Called each time a row crosses the payline, for the tick sound. Read
+   * through a ref, so a new callback never restarts a spin.
+   */
+  onTick?: () => void;
 }
 
 /**
@@ -44,10 +72,15 @@ export interface ReelProps {
  *
  * Three deliberate properties:
  *
- * 1. The strip is a fixed RUNWAY + VISIBLE_ROWS regardless of whether there
- *    are 50 participants or 5000. v2 rendered up to 59 rows, each carrying
- *    `transition: all 0.6s`, a text-shadow and a drop-shadow, and rebuilt the
- *    whole strip on every one of its 2-second polls.
+ * 1. The strip is virtual. Each spin shuffles the whole eligible pool into a
+ *    runway that ends on the winner, so everyone goes past the payline —
+ *    however short the spin. v3 first used a fixed sample of 34 decoys, and
+ *    at a 200-person event the same few names scrolled by every time while
+ *    most people never appeared at all, which reads as a rigged draw. Only
+ *    `WINDOW_ROWS` nodes exist; they ride along inside the animated track and
+ *    are re-labelled each frame for wherever the drum has got to. v2 rendered
+ *    up to 59 rows, each carrying `transition: all 0.6s`, a text-shadow and a
+ *    drop-shadow, and rebuilt the whole strip on every 2-second poll.
  *
  * 2. The whole spin is one Web Animations API animation on one node. React
  *    does not re-render while the reel is moving, so nothing that happens
@@ -66,6 +99,7 @@ export function Reel({
   reducedMotion,
   quality = "full",
   onLanded,
+  onTick,
 }: ReelProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const paylineRef = useRef<HTMLDivElement>(null);
@@ -80,6 +114,11 @@ export function Reel({
   useEffect(() => {
     onLandedRef.current = onLanded;
   }, [onLanded]);
+
+  const onTickRef = useRef(onTick);
+  useEffect(() => {
+    onTickRef.current = onTick;
+  }, [onTick]);
 
   /*
    * The drum has to fit the projector it lands on, which is as often a 720p
@@ -109,25 +148,70 @@ export function Reel({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  // A stable decoy strip, recomputed only when the pool changes.
-  const strip = useMemo(() => {
-    if (pool.length === 0) return Array.from({ length: RUNWAY }, () => "—");
-    const rng = new Rng("reel-decoys", pool.length);
-    return Array.from(
-      { length: RUNWAY },
-      () => pool[rng.nextBelow(pool.length)],
-    );
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const nameRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  /** The strip for the spin in progress (or the idle one). Never React state. */
+  const stripRef = useRef<Strip>({ names: [], landingIndex: -1 });
+  const spinCount = useRef(0);
+  const landedPropRef = useRef(landed);
+
+  // The pool is read when a spin starts, never followed during one: the
+  // winner is committed just before the drum starts, which changes the
+  // eligible pool at exactly the moment a restart would be most visible.
+  const poolRef = useRef(pool);
+  useEffect(() => {
+    poolRef.current = pool;
   }, [pool]);
 
-  const rows = useMemo(
-    () => [...strip, target ?? "—", ...strip.slice(0, VISIBLE_ROWS)],
-    [strip, target],
-  );
-
-  const landingIndex = strip.length;
-  // Land the winner on the payline, not at the top edge.
-  const landingOffset = (landingIndex - CENTER_ROW) * rowHeight;
   const duration = reducedMotion ? 400 : durationMs;
+
+  /**
+   * Label and style the window rows for a scroll position of `y` pixels.
+   * Runs every frame during a spin, so it only touches what changed.
+   */
+  const paint = (y: number) => {
+    const { names, landingIndex } = stripRef.current;
+    const first = Math.max(0, Math.floor(y / rowHeight) - 1);
+    const isLanded = landedPropRef.current;
+    for (let i = 0; i < WINDOW_ROWS; i++) {
+      const row = rowRefs.current[i];
+      const label = nameRefs.current[i];
+      if (!row || !label) continue;
+      const index = first + i;
+      const top = `translate3d(0, ${index * rowHeight}px, 0)`;
+      if (row.style.transform !== top) row.style.transform = top;
+      const text = names[index] ?? "";
+      if (label.textContent !== text) label.textContent = text;
+
+      const isWinner = index === landingIndex;
+      const fontSize = `${Math.round(
+        rowHeight * (isWinner ? (isLanded ? 0.58 : 0.5) : 0.42),
+      )}px`;
+      if (label.style.fontSize !== fontSize) label.style.fontSize = fontSize;
+      if (
+        label.dataset.winner === String(isWinner) &&
+        label.dataset.landed === String(isLanded)
+      ) {
+        continue;
+      }
+      label.dataset.winner = String(isWinner);
+      label.dataset.landed = String(isLanded);
+      // classList, not className: the landing effects (`winner-pop`) are
+      // added imperatively and must survive the restyle that follows.
+      label.classList.toggle("font-bold", isWinner);
+      label.classList.toggle("text-gold-bright", isWinner);
+      label.classList.toggle(
+        "[text-shadow:0_0_36px_rgb(242_214_138/0.55)]",
+        isWinner && isLanded,
+      );
+      label.classList.toggle("font-medium", !isWinner);
+      // Bright while the drum is spinning or idle, because then the strip is
+      // the only thing on screen. Dimmed once the winner lands so the payline
+      // owns the frame.
+      label.classList.toggle("text-ink-300", !isWinner && !isLanded);
+      label.classList.toggle("text-ink-500", !isWinner && isLanded);
+    }
+  };
 
   /*
    * Quality is read through a ref, never as an effect dependency.
@@ -165,12 +249,45 @@ export function Reel({
     animationRef.current?.cancel();
     animationRef.current = null;
 
+    spinCount.current += 1;
+    stripRef.current = buildStrip(
+      poolRef.current,
+      target,
+      spinCount.current,
+      // Reduced motion is for people who asked for less movement; streaming
+      // the whole roster past them in 400ms would be the opposite.
+      reducedMotion ? VISIBLE_ROWS * 2 : RUNWAY,
+      reducedMotion,
+    );
+    const { landingIndex } = stripRef.current;
+    // Land the winner on the payline, not at the top edge.
+    const landingOffset = Math.max(0, landingIndex - CENTER_ROW) * rowHeight;
+
+    // Follow the animation, re-labelling the window rows as the drum turns.
+    // The transform itself stays on the compositor; this only reads it.
+    // The same read drives the tick sound: one tick per row crossing the
+    // payline, so the ticks slow with the brake and stop dead on the landing.
+    let frame = 0;
+    let lastRow = 0;
+    const follow = () => {
+      const m = new DOMMatrixReadOnly(getComputedStyle(track).transform);
+      const y = -m.m42;
+      paint(y);
+      const row = Math.floor(y / rowHeight + 0.5);
+      if (row !== lastRow) {
+        lastRow = row;
+        onTickRef.current?.();
+      }
+      frame = requestAnimationFrame(follow);
+    };
+
     // Driven by `target` alone. Keying this on a "spinning" flag as well meant
     // the drum reset to the top the instant the engine moved to `revealing`,
     // which is exactly when the winner needs to stay under the payline.
     if (!target) {
       track.style.transform = "translate3d(0, 0, 0)";
       track.style.filter = "none";
+      paint(0);
       housing?.classList.remove("reel-rumbling", "reel-impact");
       drum?.classList.remove("is-spinning", "is-win");
       return;
@@ -184,11 +301,15 @@ export function Reel({
     const land = () => {
       if (landedRef.current) return;
       landedRef.current = true;
+      cancelAnimationFrame(frame);
       // Pin the final position and drop the filter, so the browser can retire
       // the composited layer instead of holding a blurred one all through the
       // reveal hold.
       track.style.transform = `translate3d(0, ${-landingOffset}px, 0)`;
       track.style.filter = "none";
+      paint(landingOffset);
+      winnerRef.current =
+        nameRefs.current.find((el) => el?.dataset.winner === "true") ?? null;
       // The drum stops vibrating and takes the hit, the payline flares, a
       // band of light crosses it and the name pops. All of it is decoration
       // over an outcome that was decided before any of this started.
@@ -214,9 +335,11 @@ export function Reel({
       );
       animationRef.current = animation;
       animation.addEventListener("finish", land, { once: true });
+      frame = requestAnimationFrame(follow);
       const fallback = setTimeout(land, duration + 400);
       return () => {
         clearTimeout(fallback);
+        cancelAnimationFrame(frame);
         animation.cancel();
       };
     }
@@ -268,6 +391,7 @@ export function Reel({
     );
     animationRef.current = animation;
     animation.addEventListener("finish", land, { once: true });
+    frame = requestAnimationFrame(follow);
 
     drum?.classList.remove("is-win");
     drum?.classList.add("is-spinning");
@@ -279,11 +403,27 @@ export function Reel({
 
     return () => {
       clearTimeout(fallback);
+      cancelAnimationFrame(frame);
       animation.cancel();
       housing?.classList.remove("reel-rumbling");
       drum?.classList.remove("is-spinning");
     };
-  }, [target, landingOffset, duration, reducedMotion]);
+    // `paint` is recreated every render but reads only refs and rowHeight,
+    // and rowHeight is a dependency here already.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, rowHeight, duration, reducedMotion]);
+
+  // Restyle for the reveal, and relabel an idle drum when the pool changes.
+  // Neither touches the transform, so neither can disturb a spin.
+  useEffect(() => {
+    landedPropRef.current = landed;
+    const track = trackRef.current;
+    if (!track) return;
+    if (!target) stripRef.current = buildStrip(pool, null, 0, RUNWAY, false);
+    const m = new DOMMatrixReadOnly(getComputedStyle(track).transform);
+    paint(-m.m42);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landed, pool, target]);
 
   return (
     // w-full: the track inside is absolutely positioned and contributes no
@@ -302,110 +442,166 @@ export function Reel({
         {/* The drum housing. The inset ring reads as the rim of the barrel. */}
         <div
           ref={housingRef}
-        // Near-opaque with a blur behind it: the drum has to be a solid object
-        // in front of the backdrop, or an uploaded photo shows straight
-        // through the names as they spin.
-        className="relative overflow-hidden rounded-3xl border border-gold-deep/40 bg-base-900/88 shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8),inset_0_1px_0_rgb(242_214_138/0.12)] backdrop-blur-md"
-        style={{ height: VISIBLE_ROWS * rowHeight }}
-      >
-        <div
-          className="reel-mask absolute inset-0"
+          // Near-opaque with a blur behind it: the drum has to be a solid object
+          // in front of the backdrop, or an uploaded photo shows straight
+          // through the names as they spin.
+          className="relative overflow-hidden rounded-3xl border border-gold-deep/40 bg-base-900/88 shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8),inset_0_1px_0_rgb(242_214_138/0.12)] backdrop-blur-md"
           style={{ height: VISIBLE_ROWS * rowHeight }}
         >
-          <div ref={trackRef} className="reel-track">
-            {rows.map((name, i) => (
-              <div
-                key={`${i}-${name}`}
-                className="flex items-center justify-center px-10 text-center"
-                style={{ height: rowHeight }}
-              >
-                <span
-                  ref={i === landingIndex ? winnerRef : undefined}
-                  className={
-                    i === landingIndex
-                      ? `truncate font-bold text-gold-bright ${
-                          landed
-                            ? "[text-shadow:0_0_36px_rgb(242_214_138/0.55)]"
-                            : ""
-                        }`
-                      : "truncate font-medium text-ink-500"
-                  }
-                  // Sized off the row so the names keep their proportion when
-                  // the drum shrinks to fit a short screen. The winner grows a
-                  // little once it lands — this row is the reveal.
-                  style={{
-                    fontSize: Math.round(
-                      rowHeight *
-                        (i === landingIndex ? (landed ? 0.58 : 0.5) : 0.42),
-                    ),
+          <div
+            className="reel-mask absolute inset-0"
+            style={{ height: VISIBLE_ROWS * rowHeight }}
+          >
+            <div ref={trackRef} className="reel-track relative">
+              {/* A fixed window of rows. Position, label and style are set
+                imperatively by `paint`; React renders them once. */}
+              {Array.from({ length: WINDOW_ROWS }, (_, i) => (
+                <div
+                  key={i}
+                  ref={(el) => {
+                    rowRefs.current[i] = el;
                   }}
+                  className="absolute inset-x-0 top-0 flex items-center justify-center px-10 text-center"
+                  style={{ height: rowHeight }}
                 >
-                  {name}
-                </span>
-              </div>
-            ))}
+                  <span
+                    ref={(el) => {
+                      nameRefs.current[i] = el;
+                    }}
+                    className="truncate"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Curvature and light. Both are static and pointer-transparent. */}
-        <div
-          aria-hidden
-          className="reel-barrel pointer-events-none absolute inset-0 z-10"
-        />
-        <div
-          aria-hidden
-          className="reel-glare pointer-events-none absolute inset-0 z-10"
-        />
-
-        <div
-          ref={paylineRef}
-          aria-hidden
-          className="reel-payline pointer-events-none absolute inset-x-0 z-20 overflow-hidden"
-          style={{ top: CENTER_ROW * rowHeight, height: rowHeight }}
-        >
-          <span
-            ref={sweepRef}
-            className="absolute inset-y-0 -left-1/3 w-1/3"
-            style={{
-              background:
-                "linear-gradient(90deg, transparent, rgb(242 214 138 / 0.28), transparent)",
-            }}
+          {/* Curvature and light. Both are static and pointer-transparent. */}
+          <div
+            aria-hidden
+            className="reel-barrel pointer-events-none absolute inset-0 z-10"
           />
-        </div>
+          <div
+            aria-hidden
+            className="reel-glare pointer-events-none absolute inset-0 z-10"
+          />
 
-        {/* Gold ticks marking the payline at both rims. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute z-20 flex flex-col justify-between"
-          style={{
-            top: CENTER_ROW * rowHeight,
-            height: rowHeight,
-            left: 0,
-            width: 18,
-          }}
-        >
-          <span className="h-px w-full bg-gold/70" />
-          <span className="h-px w-full bg-gold/70" />
-        </div>
-        <div
-          aria-hidden
-          className="pointer-events-none absolute z-20 flex flex-col justify-between"
-          style={{
-            top: CENTER_ROW * rowHeight,
-            height: rowHeight,
-            right: 0,
-            width: 18,
-          }}
-        >
-          <span className="h-px w-full bg-gold/70" />
-          <span className="h-px w-full bg-gold/70" />
-        </div>
+          {/* Cylinder cheeks: the barrel gradient curves the drum vertically,
+            these curve it horizontally. */}
+          <div
+            aria-hidden
+            className="reel-cheek reel-cheek-left pointer-events-none absolute inset-y-0 left-0 z-10"
+          />
+          <div
+            aria-hidden
+            className="reel-cheek reel-cheek-right pointer-events-none absolute inset-y-0 right-0 z-10"
+          />
+
+          <div
+            ref={paylineRef}
+            aria-hidden
+            className="reel-payline pointer-events-none absolute inset-x-0 z-20 overflow-hidden"
+            style={{ top: CENTER_ROW * rowHeight, height: rowHeight }}
+          >
+            {/* Lights only once the drum has stopped, so the winning row
+              becomes a lit window rather than just a bigger word. */}
+            <span
+              aria-hidden
+              className={`reel-window absolute inset-0 ${landed ? "is-lit" : ""}`}
+            />
+            <span
+              ref={sweepRef}
+              className="absolute inset-y-0 -left-1/3 w-1/3"
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent, rgb(242 214 138 / 0.28), transparent)",
+              }}
+            />
+          </div>
+
+          {/* Payline markers: a chevron at each rim pointing at the winning
+            row. Two thin rules read as a divider; arrows read as a payline. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute z-30 flex items-center"
+            style={{
+              top: CENTER_ROW * rowHeight,
+              height: rowHeight,
+              left: 6,
+              fontSize: Math.round(rowHeight * 0.34),
+            }}
+          >
+            <span className="reel-marker reel-marker-left" />
+          </div>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute z-30 flex items-center"
+            style={{
+              top: CENTER_ROW * rowHeight,
+              height: rowHeight,
+              right: 6,
+              fontSize: Math.round(rowHeight * 0.34),
+            }}
+          >
+            <span className="reel-marker reel-marker-right" />
+          </div>
+
+          {/* The bezel sits above the strip but below the markers, so the frame
+            crops the names and the arrows sit on top of the frame. */}
+          <div
+            aria-hidden
+            className="reel-bezel pointer-events-none absolute inset-0 z-20"
+          />
         </div>
 
         <BulbStrip quality={quality} />
       </div>
     </div>
   );
+}
+
+interface Strip {
+  names: string[];
+  /** Index of the winner in `names`, or -1 for an idle drum. */
+  landingIndex: number;
+}
+
+/**
+ * The runway for one spin: every name in the pool once, shuffled, then the
+ * winner, then a few more so the rows under the payline are never empty.
+ *
+ * The shuffle is decoration and runs after the winner was committed; it is
+ * seeded per spin only so consecutive spins do not scroll the same order.
+ */
+function buildStrip(
+  pool: string[],
+  target: string | null,
+  spin: number,
+  minRunway: number,
+  sample: boolean,
+): Strip {
+  // Leave one copy of the winner out, so the drum does not pass them on the
+  // way to landing on them.
+  const decoys = [...pool];
+  if (target !== null) {
+    const at = decoys.indexOf(target);
+    if (at !== -1) decoys.splice(at, 1);
+  }
+  if (decoys.length === 0) decoys.push(target ?? "—");
+
+  const rng = new Rng(`reel-${spin}`, decoys.length);
+  for (let i = decoys.length - 1; i > 0; i--) {
+    const j = rng.nextBelow(i + 1);
+    [decoys[i], decoys[j]] = [decoys[j], decoys[i]];
+  }
+
+  const length = sample ? minRunway : Math.max(minRunway, decoys.length);
+  const runway = Array.from({ length }, (_, i) => decoys[i % decoys.length]);
+  const tail = runway.slice(0, VISIBLE_ROWS);
+  if (target === null) return { names: [...runway, ...tail], landingIndex: -1 };
+  return {
+    names: [...runway, target, ...tail],
+    landingIndex: runway.length,
+  };
 }
 
 /**

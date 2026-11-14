@@ -122,21 +122,31 @@ Use `.ui-eyebrow` for small caps labels on operator surfaces, **not** `.stage-la
 `.stage-label` is sized for a projector and, being an unlayered rule, its `font-size` beats any
 Tailwind `text-*` utility you pair with it.
 
+Stage sound effects are [soundcn](https://soundcn.xyz) assets (CC0, base64 inside TS modules, so
+still offline) in `lib/sounds/`, played by `lib/hooks/use-sound.ts`. Add one with
+`npx shadcn@latest add https://www.soundcn.xyz/r/<name>.json`, then move the file from `lib/` into
+`lib/sounds/` and point its import at `./sound-types`. Don't use soundcn's own `useSound` hook — it
+sets React state on every play, and the reel ticks ~20×/s via `Reel`'s `onTick`.
+
 Khmer text needs the `:lang(km)` / `.km` font rule to avoid clipped diacritics. `useFrameBudget`
 steps visual quality down when FPS drops; `usePrefersReducedMotion` shortens spins. Honor both in
 new stage visuals — the reel already drops its motion blur and its rumble below `full` quality.
 
 ### The stage (`app/stage/page.tsx`)
 
-A fixed one-viewport grid: `h-dvh`, `overflow-hidden`,
-`grid-rows-[auto_minmax(0,1fr)_auto_auto]` (top bar / stage / error / controls). **It must never
-scroll** — it is the one screen in the building nobody can scroll, and an earlier `min-h-dvh`
-column put the Draw button below the fold once the winners rail filled up. Anything added here
-goes inside an existing row, and the middle row stays `min-h-0`.
+A fixed one-viewport grid: `h-dvh`, `overflow-hidden`, `grid-rows-[minmax(0,1fr)_auto]`
+(stage / error). **It must never scroll** — it is the one screen in the building nobody can
+scroll, and an earlier `min-h-dvh` column put the Draw button below the fold once the winners
+rail filled up. Anything added here goes inside an existing row, and the stage row stays `min-h-0`.
+
+The audience sees only the cabinet and the winners rail — no top bar, no counts. The control bar
+is an absolutely positioned overlay that appears on pointer movement and fades after ~2.5s idle
+(keyboard shortcuts always work). The Rehearsal / Read-only pills are the one exception and only
+render when true.
 
 The centre column is a `grid-rows-[1fr_auto_1fr]`, which is what puts the drum on the exact
-optical centre; the prize header sits bottom-aligned in the top track. Status (read-only,
-rehearsal) is compact pills in the top bar, not full-width banners — a banner row costs the reel
+optical centre. The prize is not shown on the stage (only an `sr-only` h1, which e2e waits on). Status (read-only,
+rehearsal) is compact pills overlaid top-left, not full-width banners — a banner row costs the reel
 vertical space permanently. `WinnersRail` scrolls inside itself and is capped.
 
 There is no separate winner-reveal screen: **the reel is always mounted and the name it stops on
@@ -153,8 +163,17 @@ any new audience-facing figure through it, the way `shownRemaining`, `eligible` 
 `WinnersRail`'s `hideCount` do. `e2e/draw.spec.ts` → "no spoilers" pins this down; it has been
 verified to fail when the adjustment is removed.
 
-The operator surfaces are deliberately *not* adjusted — `/control` is the presenter's own laptop
-and should see the truth as soon as it is committed.
+`/control` is held to the same rule. It was once deliberately unadjusted ("the presenter's own
+laptop"), but that laptop is often in view and it printed the winner the instant Draw was pressed.
+The stage now broadcasts `shown` on `evt:phase` — how many winners, in log order, have actually
+been revealed, with the run's baseline taken inside `draw()` before anything commits — and the
+remote renders everything through `revealedView(state, shown)`. Don't let the remote infer this
+from phases: the next commit of a batch lands while the phase still says `revealing`. Commands
+still read the real state. `e2e/draw.spec.ts` → "never shows a winner before the drum lands"
+has been verified to fail with the cap removed.
+
+The remote may change only `LiveSettings` (timing, sound, motion) via `cmd:patchSettings`, which
+the stage runs through `sanitizeLiveSettings` before committing. Never the seed or prize order.
 
 An uploaded background is usually a busy photo, so it renders at low opacity under a radial scrim
 local to the centre column, and the drum housing is near-opaque with a backdrop blur. Names have

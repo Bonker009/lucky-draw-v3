@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+coverage
+test-results
+playwright-report
+e2e
+.git
+.vercel
+.env*
+/*.png
+npm-debug.log*
+Dockerfile
+.dockerignore

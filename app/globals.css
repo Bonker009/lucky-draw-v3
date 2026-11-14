@@ -710,7 +710,8 @@
     animation: none !important;
   }
   .reel-bloom,
-  .reel-track {
+  .reel-track,
+  .reel-window {
     transition: none !important;
   }
 }
@@ -733,8 +734,128 @@
   animation: none !important;
 }
 
-[data-motion="off"] :is(.reel-bloom, .reel-track) {
+[data-motion="off"] :is(.reel-bloom, .reel-track, .reel-window) {
   transition: none !important;
+}
+
+
+/* ---- Drum furniture ------------------------------------------------------
+ *
+ * Everything below is static: no animation, no continuous repaint. It exists
+ * to make the drum read as a physical object rather than a list with a line
+ * across it, and it costs one composited layer each.
+ */
+
+/* Outer bezel. A lit top edge and a shadowed bottom one, which is most of
+   what makes a rectangle look like a moulded frame. */
+.reel-bezel {
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    rgb(242 214 138 / 0.16) 0%,
+    rgb(242 214 138 / 0) 14%,
+    rgb(0 0 0 / 0) 82%,
+    rgb(0 0 0 / 0.45) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgb(242 214 138 / 0.14),
+    inset 0 0 26px rgb(0 0 0 / 0.38);
+}
+
+/* Cylinder cheeks. The barrel gradient darkens the top and bottom of the
+   drum; these do the same at the left and right, so the strip reads as
+   wrapping away from the viewer instead of sitting flat. */
+.reel-cheek {
+  width: 8%;
+  min-width: 28px;
+  pointer-events: none;
+}
+
+.reel-cheek-left {
+  background: linear-gradient(
+    90deg,
+    rgb(4 6 10 / 0.8) 0%,
+    rgb(4 6 10 / 0.28) 55%,
+    rgb(4 6 10 / 0) 100%
+  );
+}
+
+.reel-cheek-right {
+  background: linear-gradient(
+    270deg,
+    rgb(4 6 10 / 0.8) 0%,
+    rgb(4 6 10 / 0.28) 55%,
+    rgb(4 6 10 / 0) 100%
+  );
+}
+
+/* Payline markers. The one unmistakable "this row is the one" signifier a
+   slot machine has, and cheaper than any amount of glow. */
+.reel-marker {
+  width: 0.85em;
+  height: 1.1em;
+  background: var(--gold);
+  filter: drop-shadow(0 0 10px rgb(212 175 55 / 0.55));
+}
+
+.reel-marker-left {
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.reel-marker-right {
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+
+/* The payline window lights up only once the drum has stopped. Opacity on a
+   transition, so there is nothing running during the spin. */
+.reel-window {
+  opacity: 0;
+  transition: opacity 420ms ease-out;
+  background: linear-gradient(
+    90deg,
+    rgb(212 175 55 / 0) 0%,
+    rgb(212 175 55 / 0.16) 50%,
+    rgb(212 175 55 / 0) 100%
+  );
+}
+
+.reel-window.is-lit {
+  opacity: 1;
+}
+
+
+/* ---- Cabinet -------------------------------------------------------------
+ *
+ * Marquee sign and counter plinth. Both entirely static — no animation, no
+ * continuous repaint.
+ */
+
+.marquee-sign {
+  background:
+    linear-gradient(180deg, rgb(27 34 48 / 0.95), rgb(11 14 20 / 0.92));
+  box-shadow:
+    inset 0 1px 0 rgb(242 214 138 / 0.22),
+    inset 0 0 0 1px rgb(212 175 55 / 0.16),
+    0 -10px 40px -12px rgb(212 175 55 / 0.28);
+}
+
+.counter-plinth {
+  background: linear-gradient(180deg, rgb(19 24 34 / 0.95), rgb(8 11 16 / 0.95));
+  box-shadow:
+    inset 0 1px 0 rgb(242 214 138 / 0.14),
+    inset 0 0 0 1px rgb(212 175 55 / 0.1),
+    0 22px 40px -22px rgb(0 0 0 / 0.9);
+}
+
+/* Recessed cells, so the numbers read as stamped into the plinth rather than
+   printed on it. */
+.counter-digit {
+  background: #05070b;
+  color: var(--gold-bright);
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.9),
+    0 0 0 1px rgb(212 175 55 / 0.18);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Keep focus visible on the operator surfaces; it is a keyboard-driven show. */
