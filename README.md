@@ -1,3 +1,14 @@
+# Lucky Draw
+
+An offline, browser-only prize draw for live events: a projector stage, a presenter remote, and a
+setup screen. No server is involved in the draw; everything runs in the browser.
+
+**Testing it?** Run `./docker-run.sh` and open `/demo` — see [TESTING.md](TESTING.md).
+
+**Working on it?** See [CLAUDE.md](CLAUDE.md) for the architecture and commands.
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

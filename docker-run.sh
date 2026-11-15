@@ -124,6 +124,7 @@ print_urls() {
 
   Lucky Draw is running on port $port
 
+    Demo      http://localhost:$port/demo       (start here: a ready-to-draw sample event)
     Setup     http://localhost:$port/
     Stage     http://localhost:$port/stage      (the projector)
     Control   http://localhost:$port/control    (a second tab, same browser)

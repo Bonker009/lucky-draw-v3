@@ -913,3 +913,60 @@ test.describe("every prize reveal style", () => {
     });
   }
 });
+
+/*
+ * The test environment's entry point: /demo sets up a ready-to-draw sample
+ * event with no setup — but never silently replaces a real event.
+ */
+test.describe("demo link", () => {
+  test("sets up a ready-to-draw sample event", async ({ page }) => {
+    await seedEvent(page, {
+      participants: 5,
+      prizes: [{ name: "Prize", quantity: 1 }],
+    });
+    // A previous demo in this browser: reset straight away, no question.
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        const req = indexedDB.open("lucky-draw-v3", 1);
+        req.onsuccess = () => {
+          const tx = req.result.transaction("events", "readwrite");
+          tx.objectStore("events").put({
+            seq: 999,
+            at: 0,
+            event: { type: "SETTINGS_PATCHED", patch: { eventName: "Sample Event" } },
+          });
+          tx.oncomplete = () => resolve();
+        };
+      });
+    });
+    await page.goto("/demo");
+    await expect(page.getByRole("heading", { name: "Demo event ready" })).toBeVisible({
+      timeout: 20_000,
+    });
+
+    await page.goto("/stage");
+    await expect(
+      page.getByRole("heading", { name: "Grand Prize — Motorbike" }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("img", { name: /names in the draw/ })).toHaveAttribute(
+      "data-pool-size",
+      "250",
+    );
+  });
+
+  test("asks before replacing a real event", async ({ page }) => {
+    await seedEvent(page, {
+      participants: 5,
+      prizes: [{ name: "Prize", quantity: 1 }],
+    });
+    await page.goto("/demo");
+    await expect(page.getByRole("heading", { name: "Replace this browser's event?" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(/E2E Event/)).toBeVisible();
+    await page.getByRole("button", { name: "Replace it with the demo" }).click();
+    await expect(page.getByRole("heading", { name: "Demo event ready" })).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+});
