@@ -122,6 +122,16 @@ are always dark because they point at a projector. The shadcn semantic tokens (`
 Theming is `next-themes` (`attribute="class"`, default dark, system enabled) via
 `components/theme-provider.tsx`, toggled by `components/theme-toggle.tsx`.
 
+**Magic UI** (magicui.design) components live in `components/ui/` beside shadcn's, installed with
+`npx shadcn@latest add "https://magicui.design/r/<name>.json"` (they need `motion`). They are our code
+now: their defaults (purple/pink, black/white) are always overridden with tokens — see
+`components/setup/magic-surface.tsx` — and the same gold rule applies: sheens and beams on controls
+are neutral, gold only on a winner. Motion: `components/motion-provider.tsx` makes motion honour the
+OS setting app-wide and the stage nests `<MotionConfig>` for the event's own override; but
+`BorderBeam` and `SparklesText` keep animating under reduced motion, so they are only mounted when
+motion is allowed (and not at `minimal` quality on the stage). `AnimatedList` is a timed demo
+sequencer — for live data use `AnimatedListItem` inside `AnimatePresence initial={false}`.
+
 Use `.ui-eyebrow` for small caps labels on operator surfaces, **not** `.stage-label` —
 `.stage-label` is sized for a projector and, being an unlayered rule, its `font-size` beats any
 Tailwind `text-*` utility you pair with it.
@@ -181,8 +191,36 @@ has been verified to fail with the cap removed.
 The remote may change only `LiveSettings` (timing, sound, motion) via `cmd:patchSettings`, which
 the stage runs through `sanitizeLiveSettings` before committing. Never the seed or prize order.
 
+**Prize reveals** (`components/stage/prize-reveals/`): before drawing for a prize the presenter
+can announce it — `cmd:prize` `show` (covered: "Up next", how many to be won, never the name),
+`reveal`, `hide`; R on the stage walks the same three steps. Five styles, picked in setup as
+`settings.prizeRevealStyle` (`cover`, `lineup`, `board`, `shutter`, `focus`), all on the
+`PrizeRevealProps` contract and the e2e "every prize reveal style" checks. Like the photo session it is
+presentation state in the stage controller (`lib/stage/prize-show.ts`), never logged; a prize board
+and a photo board are mutually exclusive, neither goes up mid-draw, and a draw always takes the
+screen back. The prize is lit in warm white — never gold — and plays the clunk, not the fanfare.
+
+**The photo session** (`components/stage/photo-call.tsx`) has two modes the remote switches with
+`cmd:photo` (B on the stage): *call up* — numbered names in groups of `PHOTO_GROUP_SIZE` (10),
+numbering continuous across groups, each name greyed with a tick as the presenter checks them in —
+and *backdrop*, which keeps everything in the top third because the group stands in front of the
+rest. Mode, group, check-ins and no-shows are presentation state in the stage controller
+(`lib/stage/photo-session.ts`, `applyPhotoAction` validates every remote request against the roster),
+broadcast on `evt:phase` as `photo`; they are never logged, and a no-show is only marked, never
+redrawn. While a board is up the remote's big pane is `PhotoCheckIn` instead of the winners list.
+
 An uploaded background is usually a busy photo, so it renders at low opacity under a radial scrim
 local to the centre column. Names have to win against whatever someone uploaded.
+
+The stage ground is `.stage-bg` (navy into plum, in `app/globals.css`), not `bg-base-900`. Scrims
+and vignettes on it are deep navy (`rgb(14 18 44 / …)`), never near-black, and must fade to fully
+transparent: a canvas scrim that ended at 0.35 drew the wall as a hard-edged black box.
+
+`components/stage/gem-field.tsx` floats low-poly gems and sparkles around the edges. Placement is
+`lib/stage/gem-layout.ts` (own PRNG, seeded per view, unit-tested never to centre a gem inside the
+keep-out rectangles). Gems are cool-toned only — warm gold means "winner". The wall style passes
+`WALL_KEEP_OUT`, because its columns run edge to edge. It renders nothing at `minimal` quality and
+holds still under reduced motion (its classes are in both opt-out lists).
 
 ### The name wall (`components/stage/name-wall.tsx`)
 
@@ -214,6 +252,14 @@ to preserve:
   once 40 or fewer remain.
 - The canvas exposes `data-pool-size` and `data-alive` for tests; `e2e/draw.spec.ts` → "the wall"
   checks it lands on exactly the committed winner without naming them early.
+- **A multi-winner draw on the wall is one run, not N.** The controller passes `batchReveal` to the
+  engine only for the wall: every winner is committed first (still one `onCommit` at a time), then
+  one spin towards all of them (`snapshot.targets`), and `planWall` takes the field to exactly N.
+  Each winner is then called forward with their own reveal and hold (the spotlight); batches over
+  `WALL_SPOTLIGHT_MAX` land together. Because the whole batch is committed before the spin, the
+  stage's `unrevealed` is `targets − revealed`, not 0/1, and the batch caption is the only DOM text
+  that names them. Other styles still spin once per winner. "a batch knocks out to the last N"
+  pins this down.
 
 ### Draw styles (`components/stage/reveals/`)
 

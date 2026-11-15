@@ -8,6 +8,8 @@ export interface SeedOptions {
   seed?: string;
   /** Stage draw style; defaults to the name wall. */
   drawStyle?: "wall" | "flap" | "envelope" | "letters" | "reel";
+  /** How the stage announces a prize; defaults to the cover lift. */
+  prizeRevealStyle?: "cover" | "lineup" | "board" | "shutter" | "focus";
 }
 
 /**
@@ -76,6 +78,7 @@ export async function seedEvent(page: Page, options: SeedOptions) {
         suspenseScaling: false,
         soundEnabled: false,
         drawStyle: opts.drawStyle ?? "wall",
+        prizeRevealStyle: opts.prizeRevealStyle ?? "cover",
       },
     });
     opts.prizes.forEach((prize, i) => {

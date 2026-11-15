@@ -12,6 +12,14 @@ export interface EngineSnapshot {
   revealed: string | null;
   /** The winner the reel is spinning towards; the reel needs it up front. */
   target: string | null;
+  /**
+   * Every winner the current spin is heading for, in commit order. One id for
+   * a normal draw; the whole batch when a batch is revealed in one spin
+   * (`batchReveal`), which the name wall plays as "last N standing".
+   */
+  targets: string[];
+  /** How long the current spin runs, suspense included; 0 when not spinning. */
+  spinMs: number;
   /** How many winners of the current plan are still to come. */
   pending: number;
   batch: string[];
@@ -23,6 +31,8 @@ const IDLE: EngineSnapshot = {
   prizeId: null,
   revealed: null,
   target: null,
+  targets: [],
+  spinMs: 0,
   pending: 0,
   batch: [],
   error: null,
@@ -53,6 +63,18 @@ export interface RunOptions {
   onReveal?: (participantId: string, index: number) => void;
   onBatchComplete?: (winners: string[]) => void;
   reducedMotion?: boolean;
+  /**
+   * Reveal a multi-winner draw in one spin instead of one spin per winner.
+   *
+   * Every winner is committed first — still one `onCommit` at a time, against
+   * current state, so the log stays self-consistent — and only then does the
+   * single spin start, towards all of them. After it, each winner gets their
+   * own reveal and hold in commit order (the spotlight), so nobody's moment is
+   * merged into someone else's. A batch larger than `spotlightMax` is
+   * revealed in one step instead: thirty consecutive spotlights would hold the
+   * room for over a minute.
+   */
+  batchReveal?: { spotlightMax: number };
 }
 
 class AbortedError extends Error {
@@ -145,6 +167,8 @@ export class DrawEngine {
       prizeId: request.prizeId,
       revealed: null,
       target: null,
+      targets: [],
+      spinMs: 0,
       pending: request.count,
       batch: [],
       error: null,
@@ -153,7 +177,9 @@ export class DrawEngine {
     const revealed: string[] = [];
 
     try {
-      for (let i = 0; i < request.count; i++) {
+      if (options.batchReveal && request.count > 1) {
+        await this.#runBatch(request, options, options.batchReveal, signal, revealed);
+      } else for (let i = 0; i < request.count; i++) {
         if (signal.aborted) throw new AbortedError();
 
         // Commit first, reveal second. If this throws, the audience never
@@ -174,6 +200,8 @@ export class DrawEngine {
         this.#emit({
           phase: "spinning",
           target: participantId,
+          targets: [participantId],
+          spinMs: duration,
           revealed: null,
           pending: remaining,
         });
@@ -195,7 +223,7 @@ export class DrawEngine {
       }
 
       if (generation === this.#generation) {
-        this.#emit({ phase: "celebrating", target: null });
+        this.#emit({ phase: "celebrating", target: null, spinMs: 0 });
       }
       options.onBatchComplete?.(revealed);
     } catch (error) {
@@ -222,6 +250,64 @@ export class DrawEngine {
       this.#inFlight = false;
       this.#settled?.();
       this.#settled = null;
+    }
+  }
+
+  /** One spin towards every winner of the batch, then their reveals. */
+  async #runBatch(
+    request: RunRequest,
+    options: RunOptions,
+    batch: { spotlightMax: number },
+    signal: AbortSignal,
+    revealed: string[],
+  ) {
+    // Commit first, reveal second — for the whole batch. If any commit
+    // throws, nothing has been shown yet.
+    const targets: string[] = [];
+    for (let i = 0; i < request.count; i++) {
+      if (signal.aborted) throw new AbortedError();
+      const participantId = await options.onCommit(i);
+      if (participantId === null) break;
+      targets.push(participantId);
+    }
+    if (signal.aborted) throw new AbortedError();
+    if (targets.length === 0) return;
+
+    // The one spin is the batch's finale, so it gets the finale's suspense.
+    const duration = options.reducedMotion
+      ? 600
+      : spinDuration(options.spinDurationMs, 1, options.suspenseScaling);
+    this.#emit({
+      phase: "spinning",
+      target: targets[0],
+      targets,
+      spinMs: duration,
+      revealed: null,
+      pending: targets.length,
+    });
+    await this.#sleep(duration, signal);
+
+    const hold = options.revealHoldMs ?? (options.reducedMotion ? 800 : 2200);
+    if (targets.length > batch.spotlightMax) {
+      revealed.push(...targets);
+      const last = targets[targets.length - 1];
+      this.#emit({ phase: "revealing", revealed: last, batch: [...revealed], pending: 0 });
+      // One reveal, one celebration: the whole group lands together.
+      options.onReveal?.(last, targets.length - 1);
+      await this.#sleep(hold, signal);
+      return;
+    }
+    for (let k = 0; k < targets.length; k++) {
+      if (signal.aborted) throw new AbortedError();
+      revealed.push(targets[k]);
+      this.#emit({
+        phase: "revealing",
+        revealed: targets[k],
+        batch: [...revealed],
+        pending: targets.length - k - 1,
+      });
+      options.onReveal?.(targets[k], k);
+      await this.#sleep(hold, signal);
     }
   }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { MagicSurface } from "@/components/setup/magic-surface";
 import { useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Gift, ImagePlus, Plus, Trash2 } from "lucide-react";
 import { SectionCard } from "@/components/setup/section-card";
@@ -164,7 +165,9 @@ function PrizeRow({
   const done = prize.quantity > 0 ? (awarded / prize.quantity) * 100 : 0;
 
   return (
-    <li className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-muted-foreground/40">
+    <li className="rounded-xl">
+      <MagicSurface className="rounded-xl">
+      <div className="flex items-center gap-3 p-3">
       {/* Draw order. Explicit, because the stage follows it literally. */}
       <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
         {position}
@@ -287,6 +290,8 @@ function PrizeRow({
       >
         <Trash2 />
       </Button>
+      </div>
+      </MagicSurface>
     </li>
   );
 }

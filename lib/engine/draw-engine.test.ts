@@ -250,3 +250,111 @@ describe("spinDuration", () => {
     expect(spinDuration(20000, 1, true)).toBe(15000);
   });
 });
+
+describe("DrawEngine batch reveal", () => {
+  const batch = { batchReveal: { spotlightMax: 8 } };
+
+  it("commits the whole batch before the single spin, then spotlights in order", async () => {
+    const engine = new DrawEngine();
+    const order: string[] = [];
+    const spins: string[][] = [];
+    const unsubscribe = engine.subscribe(() => {
+      const s = engine.getSnapshot();
+      if (s.phase === "spinning" && s.targets.length && spins.at(-1) !== s.targets) {
+        spins.push(s.targets);
+      }
+    });
+    await engine.run(
+      request(3),
+      options({
+        ...batch,
+        spinDurationMs: 5,
+        onCommit: async (i) => {
+          order.push(`commit:p${i}`);
+          return `p${i}`;
+        },
+        onReveal: (id) => {
+          order.push(`reveal:${id}`);
+        },
+      }),
+    );
+    unsubscribe();
+    expect(order).toEqual([
+      "commit:p0",
+      "commit:p1",
+      "commit:p2",
+      "reveal:p0",
+      "reveal:p1",
+      "reveal:p2",
+    ]);
+    // One spin, towards all three.
+    expect(spins).toEqual([["p0", "p1", "p2"]]);
+    expect(engine.getSnapshot().phase).toBe("celebrating");
+    expect(engine.getSnapshot().batch).toEqual(["p0", "p1", "p2"]);
+  });
+
+  it("reveals a batch over the spotlight limit in one step", async () => {
+    const engine = new DrawEngine();
+    const reveals: string[] = [];
+    await engine.run(
+      request(12),
+      options({
+        ...batch,
+        spinDurationMs: 5,
+        onReveal: (id) => {
+          reveals.push(id);
+        },
+      }),
+    );
+    expect(reveals).toEqual(["p11"]);
+    expect(engine.getSnapshot().batch).toHaveLength(12);
+  });
+
+  it("keeps the whole committed batch when stopped mid-spin", async () => {
+    const engine = new DrawEngine();
+    const committed: string[] = [];
+    const revealed: string[] = [];
+    const run = engine.run(
+      request(3),
+      options({
+        ...batch,
+        spinDurationMs: 400,
+        onCommit: committer(committed),
+        onReveal: (id) => {
+          revealed.push(id);
+        },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    engine.stop();
+    await run;
+    expect(committed).toEqual(["p0", "p1", "p2"]);
+    expect(revealed).toEqual([]);
+    expect(engine.getSnapshot().phase).toBe("stopped");
+    expect(engine.pendingTimerCount).toBe(0);
+  });
+
+  it("spins once for however many the pool still had", async () => {
+    const engine = new DrawEngine();
+    const reveals: string[] = [];
+    await engine.run(
+      request(5),
+      options({
+        ...batch,
+        spinDurationMs: 5,
+        onCommit: async (i) => (i < 2 ? `p${i}` : null),
+        onReveal: (id) => {
+          reveals.push(id);
+        },
+      }),
+    );
+    expect(reveals).toEqual(["p0", "p1"]);
+  });
+
+  it("runs a one-winner draw the ordinary way", async () => {
+    const engine = new DrawEngine();
+    const reveals: string[] = [];
+    await engine.run(request(1), options({ ...batch, spinDurationMs: 5, onReveal: (id) => { reveals.push(id); } }));
+    expect(reveals).toEqual(["p0"]);
+  });
+});

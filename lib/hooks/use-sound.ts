@@ -184,5 +184,11 @@ export function useSound(options: { enabled: boolean; winAssetId?: string }) {
     photoCallRef.current = play("photoCall", 0.7);
   }, [play, stopPhotoCall]);
 
-  return { tick, playWin, playPhotoCall, stopPhotoCall };
+  /** A prize unveiled: the heavy clunk alone — the fanfare is for winners. */
+  const playPrize = useCallback(() => {
+    if (!enabledRef.current) return;
+    play("clunk", 0.6, 0.9);
+  }, [play]);
+
+  return { tick, playWin, playPhotoCall, stopPhotoCall, playPrize };
 }

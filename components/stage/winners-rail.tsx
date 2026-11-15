@@ -1,5 +1,6 @@
 "use client";
 
+import { BlurFade } from "@/components/ui/blur-fade";
 import { useMemo } from "react";
 import type { DrawState } from "@/lib/domain/types";
 
@@ -59,11 +60,12 @@ export function WinnersRail({
         {recent.map((winner, i) => (
           <li
             key={`${winner.prizeId}-${winner.participantId}`}
-            // rail-enter plays once per mount. Keys are per-winner and stable,
-            // so only the row that just appeared animates — the rest of the
-            // list is untouched.
-            className="rail-enter shrink-0 border-b border-ink-100/[0.07] py-[1.5vh]"
+            // The entrance plays once per mount. Keys are per-winner and
+            // stable, so only the row that just appeared blurs in — the rest
+            // of the list is untouched.
+            className="shrink-0 border-b border-ink-100/[0.07] py-[1.5vh]"
           >
+            <BlurFade duration={0.5} offset={10} blur="8px">
             <span
               // The newest winner is the one the audience is still looking for
               // on the rail, so it keeps the accent.
@@ -81,6 +83,7 @@ export function WinnersRail({
             <span className="mt-0.5 block truncate text-[min(1.4vh,0.95rem)] text-ink-500">
               {state.prizesById.get(winner.prizeId)?.name ?? ""}
             </span>
+            </BlurFade>
           </li>
         ))}
       </ol>

@@ -5,8 +5,10 @@ import Link from "next/link";
 import { Settings2, Volume2, VolumeX } from "lucide-react";
 import { ActionPanel } from "@/components/control/action-panel";
 import { NowOnStage } from "@/components/control/now-on-stage";
+import { PhotoCheckIn } from "@/components/control/photo-check-in";
 import { PhotoSession } from "@/components/control/photo-session";
 import { PrizeList } from "@/components/control/prize-list";
+import { PrizeRevealControls } from "@/components/control/prize-reveal-controls";
 import { ShowSettings } from "@/components/control/show-settings";
 import { WinnersList } from "@/components/control/winners-list";
 import { ROSTER_ALL } from "@/components/stage/photo-call";
@@ -25,6 +27,12 @@ import {
 import { getChannel } from "@/lib/channel";
 import type { DrawState } from "@/lib/domain/types";
 import { useStageMirror } from "@/lib/hooks/use-stage-mirror";
+import {
+  clampGroup,
+  groupCount,
+  groupSlice,
+  photoRoster,
+} from "@/lib/stage/photo-session";
 import { useEventStore } from "@/lib/store/event-store";
 
 const LINK_BADGE = {
@@ -138,6 +146,17 @@ export default function ControlPage() {
     : mirror.roster === ROSTER_ALL
       ? "All winners"
       : (state.prizesById.get(mirror.roster)?.name ?? "Winners");
+  const prizeShow = linked ? (mirror?.prizeShow ?? null) : null;
+  const prizeShowName = prizeShow
+    ? (state.prizesById.get(prizeShow.prizeId)?.name ?? null)
+    : null;
+
+  // The photo session, while the stage has a board up: the whole roster, and
+  // the group the board is calling.
+  const photoScope = linked ? (mirror?.roster ?? null) : null;
+  const roster = photoScope ? photoRoster(view, photoScope, ROSTER_ALL) : [];
+  const photoGroups = groupCount(roster.length);
+  const photoGroup = mirror?.photo ? clampGroup(mirror.photo.group, roster.length) : 0;
 
   const revealedName = mirror?.revealed
     ? participantName(state, mirror.revealed)
@@ -290,13 +309,30 @@ export default function ControlPage() {
           now={now}
           revealedName={revealedName}
           rosterLabel={rosterLabel}
+          boardLabel={
+            prizeShow ? (prizeShow.revealed ? "Prize revealed" : "Prize up next") : undefined
+          }
+          boardTitle={prizeShow ? (prizeShowName ?? undefined) : undefined}
         />
         <ShowSettings
           channel={channel}
           settings={state.settings}
           disabled={!linked}
         />
-        <WinnersList state={view} prizeId={selected} wide />
+        {/* During a photo session the big pane is the check-in for the group
+            being called — the same people the winners list would show. */}
+        {photoScope && mirror?.photo ? (
+          <PhotoCheckIn
+            channel={channel}
+            title={rosterLabel ?? "Winners"}
+            roster={groupSlice(roster, photoGroup)}
+            photo={mirror.photo}
+            group={photoGroup}
+            groups={photoGroups}
+          />
+        ) : (
+          <WinnersList state={view} prizeId={selected} wide />
+        )}
       </div>
 
       {/* On a phone this is last and sticky, so Draw/Stop never scroll out
@@ -343,6 +379,14 @@ export default function ControlPage() {
             />
           </ScrollArea>
         </section>
+        <PrizeRevealControls
+          channel={channel}
+          busy={busy}
+          linked={linked}
+          selectedPrize={selectedPrize}
+          shown={prizeShow}
+          shownName={prizeShowName}
+        />
         <PhotoSession
           channel={channel}
           busy={busy}
@@ -350,6 +394,8 @@ export default function ControlPage() {
           selectedPrize={selectedPrize}
           awardedHere={awardedHere}
           awardedTotal={stats.awarded}
+          photo={photoScope ? (mirror?.photo ?? null) : null}
+          groups={photoGroups}
         />
       </div>
     </main>

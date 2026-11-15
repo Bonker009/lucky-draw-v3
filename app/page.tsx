@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { useReducedMotion } from "motion/react";
 import {
   Database,
   Gift,
@@ -19,7 +20,10 @@ import { PrizesPanel } from "@/components/setup/prizes-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { AnimatedShinyText } from "@/components/ui/animated-shiny-text";
+import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
+import { NumberTicker } from "@/components/ui/number-ticker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { eventStats } from "@/lib/domain/selectors";
 import { useEventStore } from "@/lib/store/event-store";
@@ -31,6 +35,9 @@ export default function SetupPage() {
     void load();
   }, [load]);
 
+  // Motion's border beam is not a transform, so MotionConfig's reduced-motion
+  // switch does not stop it; it is simply not mounted then.
+  const reduceMotion = useReducedMotion();
   const stats = eventStats(state);
   const canRun = stats.totalParticipants > 0 && stats.totalPrizes > 0;
 
@@ -79,7 +86,15 @@ export default function SetupPage() {
                   : "bg-muted-foreground"
               }`}
             />
-            {canRun ? "Ready to run" : "Not ready"}
+            {canRun ? (
+              // A slow sheen across "Ready to run": the one status line on
+              // this page that means "you can start".
+              <AnimatedShinyText className="mx-0 text-foreground/80 dark:text-foreground/80">
+                Ready to run
+              </AnimatedShinyText>
+            ) : (
+              "Not ready"
+            )}
           </Badge>
 
           <div className="ml-auto flex items-center gap-2">
@@ -91,10 +106,21 @@ export default function SetupPage() {
               </Link>
             </Button>
             {canRun ? (
-              <Button asChild size="sm">
+              // A light travelling the edge of the next step. A link, not
+              // Magic UI's ShimmerButton: it has to stay an <a> so it can be
+              // opened in a new window on the projector.
+              <Button asChild size="sm" className="relative overflow-hidden">
                 <Link href="/stage">
                   <Play />
                   Open stage
+                  {reduceMotion ? null : (
+                    <BorderBeam
+                      size={36}
+                      duration={4}
+                      colorFrom="var(--primary-foreground)"
+                      colorTo="var(--muted-foreground)"
+                    />
+                  )}
                 </Link>
               </Button>
             ) : (
@@ -214,7 +240,11 @@ function Stat({ label, value }: { label: string; value: number }) {
     <div className="px-5 py-4">
       <dt className="ui-eyebrow text-muted-foreground">{label}</dt>
       <dd className="mt-1.5 font-mono text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums text-foreground">
-        {value}
+        {/* Rolls to the new figure on load and after an import or undo. */}
+        <NumberTicker
+          value={value}
+          className="tracking-tight text-inherit dark:text-inherit"
+        />
       </dd>
     </div>
   );

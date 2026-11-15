@@ -3,8 +3,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Quality } from "@/lib/hooks/use-frame-budget";
 import { canvasMeasure, fitFontSize, type Measure } from "@/lib/stage/fit-text";
-import { planWall, roundEnds, type WallPlan } from "@/lib/stage/wall-plan";
+import { WALL_SPOTLIGHT_MAX, planWall, roundEnds, type WallPlan } from "@/lib/stage/wall-plan";
 import { useFittedSize } from "@/components/stage/reveals/use-fitted-size";
+import { SparklesText } from "@/components/ui/sparkles-text";
+import { TextAnimate } from "@/components/ui/text-animate";
 
 /*
  * The name wall: every eligible name on screen at once, knocked out in halves
@@ -33,6 +35,12 @@ import { useFittedSize } from "@/components/stage/reveals/use-fitted-size";
  * scattered across a dim wall — the part of the draw the room most wants to
  * read was the hardest to read from the back.
  *
+ * A multi-winner draw is one run towards all of them ("last 3 standing"):
+ * `targetIds` holds the whole batch, the final round takes the field to
+ * exactly that many cards, and as the engine reveals each winner in turn
+ * (`revealedIds` grows by one) that card is spotlit — lifted and turned gold —
+ * and stays gold. The names go into the DOM only as they are revealed.
+ *
  * Drawn on a canvas, not as DOM: a 500-name roster as elements was exactly
  * the v2 failure the "500 participants do not inflate the DOM" test exists to
  * catch. The only DOM text is the count, and the winner's name once landed.
@@ -48,6 +56,13 @@ export interface NameWallProps {
   pool: WallEntry[];
   /** The committed winner being revealed, or null when idle. */
   targetId: string | null;
+  /**
+   * The whole batch when several winners are revealed in one run, in commit
+   * order. Defaults to `[targetId]`. The run is keyed on this list.
+   */
+  targetIds?: string[];
+  /** Winners of this run the engine has revealed so far, in order. */
+  revealedIds?: string[];
   /** True once the engine has revealed the target. Triggers the final round. */
   landed: boolean;
   durationMs: number;
@@ -70,6 +85,9 @@ const RUN_SHARE = 0.86;
 /** At or below this many standing, the survivors gather into large cards. */
 const GATHER = 16;
 const GATHER_MS = 780;
+/** How long a spotlit card takes to lift. */
+const SPOTLIGHT_MS = 420;
+const SPOTLIGHT_SCALE = 1.1;
 /** Gathered cards knocked out in one round fall one after another, this far apart. */
 const CARD_STAGGER_MS = 70;
 const MIN_FONT = 11;
@@ -161,10 +179,16 @@ interface Gather {
 }
 
 interface Run {
-  targetId: string;
+  key: string;
   pool: WallEntry[];
   plan: WallPlan;
-  winner: number;
+  /** Pool indices of the winners, in commit (= reveal) order. */
+  winners: number[];
+  winnerSet: Set<number>;
+  /** Winners the engine has revealed so far. */
+  revealed: Set<number>;
+  /** The card currently lifted, and since when. */
+  spotlight: { index: number; at: number } | null;
   t0: number;
   /** Start/end (ms from t0) of every round except the last. */
   starts: number[];
@@ -180,6 +204,8 @@ interface Run {
 export function NameWall({
   pool,
   targetId,
+  targetIds,
+  revealedIds,
   landed,
   durationMs,
   reducedMotion,
@@ -209,6 +235,8 @@ export function NameWall({
     rounds: 0,
     landed: false,
     total: pool.length,
+    winners: 1,
+    finalNext: false,
     winnerName: null as string | null,
   });
   const hudRef = useRef(hud);
@@ -221,6 +249,8 @@ export function NameWall({
       prev.rounds !== next.rounds ||
       prev.landed !== next.landed ||
       prev.total !== next.total ||
+      prev.winners !== next.winners ||
+      prev.finalNext !== next.finalNext ||
       prev.winnerName !== next.winnerName
     ) {
       hudRef.current = next;
@@ -278,7 +308,7 @@ export function NameWall({
 
     /** When entry i is knocked out (ms from t0), or Infinity if it is not. */
     const outAt = (i: number, cx: number): number => {
-      if (!run || i === run.winner) return Infinity;
+      if (!run || run.winnerSet.has(i)) return Infinity;
       const r = run.plan.outRound[i];
       if (r === rounds) return landedAt === null ? Infinity : landedAt - run.t0;
       const s = run.starts[r - 1];
@@ -308,9 +338,10 @@ export function NameWall({
       if (!run.gather || run.gather.key !== key) {
         const survivors: number[] = [];
         for (let i = 0; i < n; i++) {
-          if (i === run.winner || run.plan.outRound[i] > done) survivors.push(i);
+          if (run.winnerSet.has(i) || run.plan.outRound[i] > done) survivors.push(i);
         }
-        if (landedAt !== null) survivors.splice(0, survivors.length, run.winner);
+        // Landed: the winners' cards, in the order they will be revealed.
+        if (landedAt !== null) survivors.splice(0, survivors.length, ...run.winners);
         const slots = gatherSlots(survivors.length, w, h);
         const to = new Map<number, Rect>();
         const from = new Map<number, Rect>();
@@ -395,7 +426,14 @@ export function NameWall({
           ctx.stroke();
         }
         const label = fit(ctx, entries[i].name, layout.cellW - 20, fontPx);
-        ctx.fillStyle = run ? `rgb(${INK} / ${alpha.toFixed(3)})` : `rgb(209 209 214 / ${alpha.toFixed(3)})`;
+        // A batch too big to gather lands on the wall itself: revealed
+        // winners turn gold in place.
+        const shownWinner = run !== null && landedAt !== null && !gatherOn && run.revealed.has(i);
+        ctx.fillStyle = shownWinner
+          ? `rgb(${GOLD})`
+          : run
+            ? `rgb(${INK} / ${alpha.toFixed(3)})`
+            : `rgb(209 209 214 / ${alpha.toFixed(3)})`;
         ctx.fillText(label, x + 10, y + layout.cellH / 2 + s.drop);
       }
     } else {
@@ -418,10 +456,13 @@ export function NameWall({
     // ---- The gathered cards ---------------------------------------------
     let moving = false;
     if (run && gatherOn && run.gather) {
-      // Darken the wall behind the cards so they own the frame.
+      // Darken the wall behind the cards so they own the frame. It fades to
+      // nothing before the canvas edge: ending at 0.35 drew the canvas as a
+      // hard-edged dark box once the stage background stopped being black.
       const scrim = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.6);
-      scrim.addColorStop(0, "rgb(6 6 7 / 0.78)");
-      scrim.addColorStop(1, "rgb(6 6 7 / 0.35)");
+      scrim.addColorStop(0, "rgb(14 18 44 / 0.8)");
+      scrim.addColorStop(0.65, "rgb(14 18 44 / 0.45)");
+      scrim.addColorStop(1, "rgb(14 18 44 / 0)");
       ctx.fillStyle = scrim;
       ctx.fillRect(0, 0, w, h);
 
@@ -447,9 +488,13 @@ export function NameWall({
         drawCard(ctx, entries[i].name, { ...rect, y: rect.y + (rm ? 0 : ease(t) * DROP_PX * 2) }, 1 - ease(t), "out");
       });
 
-      g.to.forEach((to, i) => {
+      // The spotlit card is drawn last, so its lift is never under a neighbour.
+      const lit = run.spotlight?.index ?? -1;
+      const order = [...g.to.keys()].sort((a, b) => Number(a === lit) - Number(b === lit));
+      for (const i of order) {
+        const to = g.to.get(i)!;
         const from = g.from.get(i)!;
-        const rect: Rect = {
+        let rect: Rect = {
           x: lerp(from.x, to.x, e),
           y: lerp(from.y, to.y, e),
           w: lerp(from.w, to.w, e),
@@ -457,26 +502,52 @@ export function NameWall({
         };
         if (k >= 1) run.lastRect.set(i, to);
         else run.lastRect.set(i, rect);
-        const finalPair = g.to.size <= 2 && landedAt === null;
-        const won = landedAt !== null && i === run.winner;
-        drawCard(ctx, entries[i].name, rect, Math.min(1, 0.35 + e), won ? "win" : finalPair ? "pair" : "in");
-      });
+        // The face-off: one more standing than there are winners, just
+        // before the final knock-out (two names, for a single winner).
+        const finalPair = landedAt === null && g.to.size <= run.winners.length + 1;
+        const shown = landedAt !== null && run.revealed.has(i);
+        const isLit = shown && i === lit;
+        if (isLit && run.winners.length > 1) {
+          const t = rm ? 1 : Math.min(1, (now - run.spotlight!.at) / SPOTLIGHT_MS);
+          if (t < 1) moving = true;
+          const s = 1 + (SPOTLIGHT_SCALE - 1) * ease(t);
+          rect = {
+            x: rect.x - (rect.w * (s - 1)) / 2,
+            y: rect.y - (rect.h * (s - 1)) / 2,
+            w: rect.w * s,
+            h: rect.h * s,
+          };
+        }
+        drawCard(
+          ctx,
+          entries[i].name,
+          rect,
+          Math.min(1, 0.35 + e),
+          isLit ? "win" : shown ? "won" : finalPair ? "pair" : "in",
+        );
+      }
     }
 
-    canvas.dataset.alive = String(landedAt !== null ? 1 : standingCount);
+    const winnerCount = run ? run.winners.length : 1;
+    canvas.dataset.alive = String(landedAt !== null ? winnerCount : standingCount);
     publish({
       alive: standingCount,
       round: run ? Math.min(done + 1, rounds) : 0,
       rounds,
       landed: landedAt !== null,
       total: n,
+      winners: winnerCount,
+      finalNext: run !== null && landedAt === null && rounds > 0 && done >= rounds - 1,
       // Only ever set once landed: the overlay is the one place the wall
       // puts a name into the DOM, and it must not exist before the reveal.
-      winnerName: run && landedAt !== null ? entries[run.winner].name : null,
+      // A batch has no single overlay; its names arrive one at a time.
+      winnerName:
+        run && landedAt !== null && winnerCount === 1 ? entries[run.winners[0]].name : null,
     });
 
     if (!run) return shimmer;
     if (landedAt === null || moving) return true;
+    if (run.spotlight && now - run.spotlight.at < SPOTLIGHT_MS + 100) return true;
     return now - landedAt < FINAL_FADE_MS + GATHER_MS + 200;
   }
 
@@ -485,25 +556,46 @@ export function NameWall({
     name: string,
     rect: Rect,
     alpha: number,
-    kind: "in" | "pair" | "win" | "out",
+    kind: "in" | "pair" | "win" | "won" | "out",
   ) {
     const radius = Math.min(14, rect.h * 0.22);
+    const gold = kind === "win" || kind === "won";
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    if (kind === "win") {
+      // The spotlit winner glows; winners already revealed keep the gold
+      // without the glow, so only one card ever reads as "now".
+      ctx.shadowColor = `rgb(${GOLD} / 0.45)`;
+      ctx.shadowBlur = rect.h * 0.4;
+    }
     ctx.beginPath();
     ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);
     ctx.fillStyle =
-      kind === "win" ? `rgb(${GOLD} / 0.14)` : kind === "pair" ? "rgb(32 33 38 / 0.96)" : "rgb(24 25 29 / 0.94)";
+      kind === "win"
+        ? "rgb(46 40 30 / 0.97)"
+        : kind === "won"
+          ? // Opaque: a translucent card let the wall's names show through.
+            "rgb(36 33 30 / 0.97)"
+          : kind === "pair"
+            ? "rgb(32 33 38 / 0.96)"
+            : "rgb(24 25 29 / 0.94)";
     ctx.fill();
-    ctx.lineWidth = kind === "pair" || kind === "win" ? 1.5 : 1;
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = kind === "pair" || gold ? 1.5 : 1;
     ctx.strokeStyle =
-      kind === "win" ? `rgb(${GOLD} / 0.7)` : kind === "pair" ? `rgb(${INK} / 0.5)` : `rgb(${INK} / 0.14)`;
+      kind === "win"
+        ? `rgb(${GOLD} / 0.85)`
+        : kind === "won"
+          ? `rgb(${GOLD} / 0.45)`
+          : kind === "pair"
+            ? `rgb(${INK} / 0.5)`
+            : `rgb(${INK} / 0.14)`;
     ctx.stroke();
     const px = cardFont(name, rect);
     ctx.font = `600 ${px}px ${fontFamily.current}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = kind === "win" ? `rgb(${GOLD})` : `rgb(${INK})`;
+    ctx.fillStyle = gold ? `rgb(${GOLD})` : `rgb(${INK})`;
     ctx.fillText(name, rect.x + rect.w / 2, rect.y + rect.h / 2);
     ctx.restore();
     ctx.textAlign = "start";
@@ -572,28 +664,36 @@ export function NameWall({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only
   }, []);
 
-  // A new target starts a new run. Keyed on the target alone (see above).
+  // The batch this run is heading for. One id for a normal draw.
+  const runKey = (targetIds && targetIds.length ? targetIds : targetId ? [targetId] : []).join("|");
+  const revealedKey = (revealedIds ?? (landed && targetId ? [targetId] : [])).join("|");
+
+  // A new target starts a new run. Keyed on the targets alone (see above).
   useEffect(() => {
-    if (!targetId) {
+    if (!runKey) {
       runRef.current = null;
       kick();
       return;
     }
     const { pool: entries, durationMs: d, reducedMotion: rm, quality: q } = live.current;
-    const winner = entries.findIndex((e) => e.id === targetId);
-    if (winner < 0) {
+    const ids = runKey.split("|");
+    const winners = ids.map((id) => entries.findIndex((e) => e.id === id));
+    if (winners.some((w) => w < 0)) {
       runRef.current = null;
       kick();
       return;
     }
-    const plan = planWall(entries.length, winner, targetId);
+    const plan = planWall(entries.length, winners, runKey);
     const spin = (rm ? 600 : d) * RUN_SHARE;
     const ends = roundEnds(Math.max(0, plan.rounds - 1)).map((f) => f * spin);
     runRef.current = {
-      targetId,
+      key: runKey,
       pool: entries,
       plan,
-      winner,
+      winners,
+      winnerSet: new Set(winners),
+      revealed: new Set(),
+      spotlight: null,
       t0: performance.now(),
       starts: [0, ...ends.slice(0, -1)],
       ends,
@@ -604,8 +704,26 @@ export function NameWall({
       lastRect: new Map(),
     };
     kick();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the target only
-  }, [targetId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the targets only
+  }, [runKey]);
+
+  // The engine revealed another winner of the batch: lift that card. A jump
+  // of more than one (a batch too big to spotlight) lights them all at once.
+  useEffect(() => {
+    const run = runRef.current;
+    if (!run) return;
+    const next = new Set<number>();
+    for (const id of revealedKey ? revealedKey.split("|") : []) {
+      const i = run.pool.findIndex((e) => e.id === id);
+      if (run.winnerSet.has(i)) next.add(i);
+    }
+    const added = [...next].filter((i) => !run.revealed.has(i));
+    run.revealed = next;
+    if (added.length === 1) run.spotlight = { index: added[0], at: performance.now() };
+    else if (added.length > 1) run.spotlight = null;
+    kick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- kick is stable in effect
+  }, [revealedKey, runKey]);
 
   // The engine revealed the target: play the final round.
   useEffect(() => {
@@ -615,7 +733,7 @@ export function NameWall({
       kick();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- kick is stable in effect
-  }, [landed, targetId]);
+  }, [landed, runKey]);
 
   // Idle roster changes (an import, an undo) redraw the still wall, and a
   // quality or motion change starts or stops the shimmer.
@@ -625,6 +743,15 @@ export function NameWall({
   }, [pool, quality, reducedMotion]);
 
   const winnerName = hud.winnerName;
+  const sparkle = !reducedMotion && quality !== "minimal";
+  // A batch: the names the engine has revealed so far, newest last. Read from
+  // props, which only ever hold winners the engine has actually revealed.
+  const batchShown =
+    hud.landed && hud.winners > 1
+      ? (revealedIds ?? [])
+          .map((id) => pool.find((p) => p.id === id)?.name)
+          .filter((x): x is string => Boolean(x))
+      : [];
   // The winner's name wraps to two lines and shrinks to fit rather than being
   // cut off with an ellipsis — a truncated winner is a name nobody can read.
   const [winnerBox, winnerPx] = useFittedSize(winnerName, { maxLines: 2, maxVh: 15, maxPx: 144, minPx: 36, weight: 700 });
@@ -640,15 +767,17 @@ export function NameWall({
             hud.landed ? "text-gold-bright" : "text-ink-100"
           }`}
         >
-          {hud.landed ? 1 : hud.alive}
+          {hud.landed ? hud.winners : hud.alive}
         </span>
         <span className="text-[min(2.4vh,1.6rem)] text-ink-500">
           {hud.landed
-            ? `winner, from ${hud.total} in the draw`
+            ? `${hud.winners === 1 ? "winner" : "winners"}, from ${hud.total} in the draw`
             : hud.rounds > 0
-              ? hud.alive === 2
+              ? hud.finalNext
                 ? "left — one more round"
-                : "still in"
+                : hud.winners > 1
+                  ? `still in · ${hud.winners} will win`
+                  : "still in"
               : "in the draw"}
         </span>
         {hud.rounds > 0 && !hud.landed ? (
@@ -692,7 +821,7 @@ export function NameWall({
                 // Wide and tall enough for a name that wraps to two lines,
                 // so the wall (and the winner's own gold card) never shows
                 // through behind the overlay.
-                "radial-gradient(ellipse 64% 48% at 50% 50%, rgb(6 6 7 / 0.96) 0%, rgb(6 6 7 / 0.82) 55%, transparent 88%)",
+                "radial-gradient(ellipse 64% 48% at 50% 50%, rgb(14 18 44 / 0.95) 0%, rgb(14 18 44 / 0.8) 55%, transparent 88%)",
             }}
           >
             <div
@@ -704,18 +833,72 @@ export function NameWall({
               }}
             />
             <div ref={winnerBox} className="relative w-[90%]">
-              <span
+              <div
                 className="stage-name name-mixed block text-center text-gold-bright [overflow-wrap:anywhere] [text-wrap:balance]"
                 style={winnerPx ? { fontSize: winnerPx, lineHeight: 1.05 } : undefined}
               >
-                {winnerName}
-              </span>
+                {/* Sparkles only with motion on, and dropped at minimal
+                    quality: the component re-renders ten times a second,
+                    cheap for one name but not on a laptop already dropping
+                    frames. Size and weight are inherited so the fitted size
+                    still holds. */}
+                {sparkle ? (
+                  <SparklesText
+                    sparklesCount={12}
+                    colors={{ first: "#f2d68a", second: "#ffffff" }}
+                    className="text-[length:inherit] leading-[inherit] font-[inherit] [&_strong]:font-[inherit]"
+                  >
+                    {winnerName}
+                  </SparklesText>
+                ) : (
+                  winnerName
+                )}
+              </div>
             </div>
             <span className="relative flex items-center gap-4 text-[min(2.2vh,1.4rem)] text-ink-500">
               <span aria-hidden className="h-px w-10 bg-gold/50" />
               last name standing of {hud.total}
               <span aria-hidden className="h-px w-10 bg-gold/50" />
             </span>
+          </div>
+        ) : null}
+        {batchShown.length > 0 ? (
+          // One line under the cards: who has just been called, and how many
+          // of the batch are out so far.
+          <div
+            data-testid="reveal-winner"
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-[0.8vh] pt-[3vh] pb-[1vh]"
+            style={{
+              background:
+                "radial-gradient(ellipse 45% 70% at 50% 70%, rgb(14 18 44 / 0.92), transparent 80%)",
+            }}
+          >
+            <span className="flex items-center gap-4 text-[min(2.2vh,1.4rem)] text-ink-500 tabular-nums">
+              <span aria-hidden className="h-px w-10 bg-gold/50" />
+              {hud.winners > WALL_SPOTLIGHT_MAX
+                ? `${hud.winners} winners`
+                : `Winner ${batchShown.length} of ${hud.winners}`}
+              <span aria-hidden className="h-px w-10 bg-gold/50" />
+            </span>
+            {/* Sized inline: `.stage-name` is unlayered and its font-size beats
+                any text-* utility, which put this line at headline size on top
+                of the cards. */}
+            {hud.winners > WALL_SPOTLIGHT_MAX ? null : (
+              // Keyed per spotlight, so each newly called name blurs in word
+              // by word. Only revealed names ever reach this line.
+              <TextAnimate
+                key={batchShown.length}
+                as="span"
+                animation="blurInUp"
+                by="word"
+                startOnView={false}
+                className="name-mixed max-w-[90%] truncate text-center font-semibold leading-tight tracking-tight text-gold-bright"
+                style={{ fontSize: "min(4.2vh, 2.8rem)" }}
+              >
+                {batchShown[batchShown.length - 1]}
+              </TextAnimate>
+            )}
+            <span className="sr-only">{batchShown.join(", ")}</span>
           </div>
         ) : null}
       </div>

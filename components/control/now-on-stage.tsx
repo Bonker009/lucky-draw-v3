@@ -1,5 +1,7 @@
 import { ExternalLink } from "lucide-react";
+import { BlurFade } from "@/components/ui/blur-fade";
 import { Button } from "@/components/ui/button";
+import { NumberTicker } from "@/components/ui/number-ticker";
 import type { StageLink, StageMirror } from "@/lib/hooks/use-stage-mirror";
 
 const PHASE_COPY: Record<string, string> = {
@@ -28,6 +30,8 @@ export function NowOnStage({
   now,
   revealedName,
   rosterLabel,
+  boardLabel,
+  boardTitle,
 }: {
   mirror: StageMirror | null;
   link: StageLink;
@@ -35,7 +39,12 @@ export function NowOnStage({
   revealedName: string | null;
   /** Set while the photo-call board has replaced the name wall. */
   rosterLabel: string | null;
+  /** Set while a prize is being announced: the eyebrow, and the prize. */
+  boardLabel?: string;
+  boardTitle?: string;
 }) {
+  // A prize announcement outranks a stale winner name, like the photo board.
+  const headline = boardTitle ?? rosterLabel ?? revealedName;
   if (link === "none" || !mirror) {
     return (
       <StageProblem
@@ -71,21 +80,32 @@ export function NowOnStage({
           aria-hidden
           className={`size-2 rounded-full ${PHASE_DOT[mirror.phase] ?? "bg-muted-foreground/60"}`}
         />
-        {rosterLabel ? "Photo board" : (PHASE_COPY[mirror.phase] ?? mirror.phase)}
+        {boardLabel ?? (rosterLabel ? "Photo board" : (PHASE_COPY[mirror.phase] ?? mirror.phase))}
       </p>
-      <p
+      <div
         aria-live="polite"
-        className={`min-w-0 flex-1 truncate ${
-          revealedName || rosterLabel
-            ? "text-lg font-semibold text-gold-ui-strong"
-            : "text-sm text-muted-foreground/70"
+        className={`min-w-0 flex-1 ${
+          boardTitle
+            ? "text-lg font-semibold text-foreground"
+            : headline
+              ? "text-lg font-semibold text-gold-ui-strong"
+              : "text-sm text-muted-foreground/70"
         }`}
       >
-        {rosterLabel ?? revealedName ?? "Nothing on screen"}
-      </p>
+        {/* Keyed on the text, so each newly revealed name blurs in rather
+            than swapping in place — the presenter's eye catches the change. */}
+        <BlurFade key={headline ?? "none"} duration={0.35} className="truncate">
+          {headline ?? "Nothing on screen"}
+        </BlurFade>
+      </div>
       {mirror.pending > 0 ? (
         <p className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
-          {mirror.pending} more to go
+          <NumberTicker
+            value={mirror.pending}
+            startValue={mirror.pending}
+            className="tracking-normal text-inherit dark:text-inherit"
+          />{" "}
+          more to go
         </p>
       ) : null}
     </div>

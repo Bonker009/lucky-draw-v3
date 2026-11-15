@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { getChannel, type ChannelMessage } from "@/lib/channel";
+import type { PhotoState } from "@/lib/stage/photo-session";
+import type { PrizeShow } from "@/lib/stage/prize-show";
 import { useEventStore } from "@/lib/store/event-store";
 
 export interface StageMirror {
@@ -11,6 +13,10 @@ export interface StageMirror {
   prizeId?: string;
   /** Which photo-call board the stage currently has up, if any. */
   roster: string | null;
+  /** Mode, group and check-ins of the photo session, while a board is up. */
+  photo: PhotoState | null;
+  /** The prize announced on the projector, if any. */
+  prizeShow: PrizeShow | null;
   /** Winners the projector has revealed, in log order. See `evt:phase`. */
   shown: number | null;
   seenAt: number;
@@ -50,6 +56,8 @@ export function useStageMirror() {
           pending: message.pending,
           prizeId: message.prizeId,
           roster: message.roster ?? null,
+          photo: message.photo ?? null,
+          prizeShow: message.prizeShow ?? null,
           shown: message.shown ?? null,
           seenAt,
         });

@@ -9,13 +9,24 @@ import {
   type ComponentProps,
 } from "react";
 import Link from "next/link";
+import { MotionConfig } from "motion/react";
+import { AnimatedShinyText } from "@/components/ui/animated-shiny-text";
 import { Backdrop } from "@/components/stage/backdrop";
 import { Confetti, type ConfettiHandle } from "@/components/stage/confetti";
+import { GemField } from "@/components/stage/gem-field";
+import { WALL_KEEP_OUT } from "@/lib/stage/gem-layout";
 import { PhotoCall, ROSTER_ALL } from "@/components/stage/photo-call";
+import { PrizeReveal } from "@/components/stage/prize-reveals/prize-reveal";
 import { DrawReveal } from "@/components/stage/reveals/draw-reveal";
+import { HOLDS_FINALE } from "@/components/stage/reveals/meta";
 import type { RevealEntry } from "@/components/stage/reveals/types";
 import { WinnersRail } from "@/components/stage/winners-rail";
-import { eligibleParticipants, remainingFor } from "@/lib/domain/selectors";
+import {
+  eligibleParticipants,
+  orderedPrizes,
+  remainingFor,
+} from "@/lib/domain/selectors";
+import type { DrawStyle } from "@/lib/domain/types";
 import { spinDuration } from "@/lib/engine/draw-engine";
 import { useEngineSnapshot } from "@/lib/engine/use-draw-engine";
 import { useAssetUrl } from "@/lib/hooks/use-asset-url";
@@ -70,7 +81,14 @@ export default function StagePage() {
 
   const flashRef = useRef<HTMLDivElement>(null);
 
-  const onWinnerRevealed = useCallback(() => {
+  // The style on screen, for the reveal callback below. Held steady through a
+  // run (see `drawStyle`), so reading it from a ref is never stale mid-draw.
+  const drawStyleRef = useRef<DrawStyle>("wall");
+  // The last winner whose reveal has fully played out — for styles that keep
+  // revealing after the engine does (the split-flap board types the name).
+  const [finaleFor, setFinaleFor] = useState<string | null>(null);
+
+  const celebrate = useCallback(() => {
     sound.playWin();
 
     // One frame of light across the whole projector, on the same beat as the
@@ -86,6 +104,24 @@ export default function StagePage() {
     // 180 particles fire at someone who explicitly asked for no motion.
     if (!motionOffRef.current) confettiRef.current?.burst();
   }, [sound]);
+
+  /*
+   * Most styles are finished the moment the engine reveals. The split-flap
+   * board is not: it types the name out over several seconds, and with the
+   * fanfare and confetti on the reveal the room cheered the first letter and
+   * the rest of the name arrived as an afterthought. Such a style calls
+   * `onFinale` once the name is complete, and the celebration waits for it.
+   */
+  const onWinnerRevealed = useCallback(() => {
+    if (!HOLDS_FINALE.has(drawStyleRef.current)) celebrate();
+  }, [celebrate]);
+  const onRevealFinale = useCallback(
+    (participantId: string) => {
+      setFinaleFor(participantId);
+      celebrate();
+    },
+    [celebrate],
+  );
 
   const controller = useStageController({
     isWriter: true,
@@ -103,6 +139,10 @@ export default function StagePage() {
     rosterScope,
     showRoster,
     hideRoster,
+    photo,
+    photoAction,
+    prizeShow,
+    prizeAction,
   } = controller;
 
   const prize = selectedPrizeId
@@ -122,6 +162,32 @@ export default function StagePage() {
       : undefined;
   const rosterPrizeImageUrl = useAssetUrl(rosterPrize?.imageAssetId);
 
+  // The prize being announced, with where it sits in the night.
+  const shownPrize = prizeShow ? state.prizesById.get(prizeShow.prizeId) : undefined;
+  const shownPrizeImageUrl = useAssetUrl(shownPrize?.imageAssetId);
+  const lineup = useMemo(
+    () =>
+      orderedPrizes(state).map((p) => ({
+        id: p.id,
+        name: p.name,
+        imageAssetId: p.imageAssetId,
+        state:
+          p.id === prizeShow?.prizeId
+            ? ("current" as const)
+            : remainingFor(state, p.id) === 0
+              ? ("done" as const)
+              : ("upcoming" as const),
+      })),
+    [state, prizeShow?.prizeId],
+  );
+  const prizePosition = Math.max(1, lineup.findIndex((p) => p.id === prizeShow?.prizeId) + 1);
+
+  // A prize unveiled gets the heavy clunk; the fanfare stays for winners.
+  const prizeRevealed = Boolean(prizeShow?.revealed);
+  useEffect(() => {
+    if (prizeRevealed) sound.playPrize();
+  }, [prizeRevealed, sound]);
+
   const spinning = snapshot.phase === "spinning";
   /*
    * The drum is never unmounted: the name it stops on IS the reveal, so it has
@@ -131,6 +197,13 @@ export default function StagePage() {
    * whichever one is populated.
    */
   const reelTargetId = snapshot.revealed ?? snapshot.target;
+  // The batch the current spin is heading for (one id unless the wall is
+  // revealing several winners in one run), and which of it has been shown.
+  const runTargets = snapshot.targets;
+  const runRevealed = useMemo(
+    () => snapshot.batch.filter((id) => runTargets.includes(id)),
+    [snapshot.batch, runTargets],
+  );
 
   /*
    * Everyone on the wall, in roster order. Uncapped on purpose — a cap meant
@@ -145,26 +218,12 @@ export default function StagePage() {
   const wallPool = useMemo<RevealEntry[]>(() => {
     const ids = new Set(eligibleParticipants(state).map((p) => p.id));
     if (reelTargetId) ids.add(reelTargetId);
+    for (const id of runTargets) ids.add(id);
     return state.participants
       .filter((p) => ids.has(p.id))
       .map((p) => ({ id: p.id, name: p.name }));
-  }, [state, reelTargetId]);
+  }, [state, reelTargetId, runTargets]);
 
-  /*
-   * How many winners are committed but not yet on screen.
-   *
-   * The engine commits a winner and only then starts the drum towards them —
-   * that ordering is what makes "announced but never saved" impossible. The
-   * side effect is that everything derived from `state` knows the answer for
-   * the entire spin: the winners rail printed the name, the remaining count
-   * ticked down, and a pip went dark, all while the audience watched the reel
-   * still turning.
-   *
-   * It is always exactly one, and only while the drum is actually running
-   * towards a target. A stop leaves the winner committed and unrevealed on
-   * purpose, and once the run is over the stage should show it.
-   */
-  const unrevealed = spinning && snapshot.target !== null ? 1 : 0;
   const busy = spinning || snapshot.phase === "revealing";
 
   /*
@@ -176,6 +235,37 @@ export default function StagePage() {
   const requestedStyle = state.settings.drawStyle ?? "wall";
   const [drawStyle, setDrawStyle] = useState(requestedStyle);
   if (!busy && drawStyle !== requestedStyle) setDrawStyle(requestedStyle);
+  useEffect(() => {
+    drawStyleRef.current = drawStyle;
+  }, [drawStyle]);
+
+  /*
+   * How many winners are committed but not yet on screen.
+   *
+   * The engine commits a winner and only then starts the drum towards them —
+   * that ordering is what makes "announced but never saved" impossible. The
+   * side effect is that everything derived from `state` knows the answer for
+   * the entire spin: the winners rail printed the name, the remaining count
+   * ticked down, and a pip went dark, all while the audience watched the reel
+   * still turning.
+   *
+   * Normally 0 or 1: 1 while the drum is actually running towards a target,
+   * and — for a style that types the name out after the reveal — until the
+   * last letter is down, or the rail printed the whole name beside the board
+   * while it was still on its first letter. When the wall reveals a batch in
+   * one run, it is every winner of the batch not yet called forward: all N
+   * during the spin, then one fewer per spotlight. A stop leaves winners
+   * committed and unrevealed on purpose, and once the run is over the stage
+   * should show them.
+   */
+  const typing =
+    HOLDS_FINALE.has(drawStyle) &&
+    snapshot.phase === "revealing" &&
+    snapshot.revealed !== null &&
+    finaleFor !== snapshot.revealed;
+  const unrevealed = busy
+    ? Math.max(0, runTargets.length - runRevealed.length) + (typing ? 1 : 0)
+    : 0;
 
   /*
    * How long the engine will actually spin for this winner. The engine
@@ -183,11 +273,13 @@ export default function StagePage() {
    * base duration finished early and showed the name before the engine had
    * revealed it. Read by each style once, when its run starts.
    */
-  const revealMs = spinDuration(
-    state.settings.spinDurationMs,
-    snapshot.pending,
-    state.settings.suspenseScaling,
-  );
+  const revealMs =
+    snapshot.spinMs ||
+    spinDuration(
+      state.settings.spinDurationMs,
+      snapshot.pending,
+      state.settings.suspenseScaling,
+    );
   const revealedParticipant = snapshot.revealed
     ? state.participantsById.get(snapshot.revealed)
     : undefined;
@@ -207,6 +299,10 @@ export default function StagePage() {
     selectedPrizeId,
     showRoster,
     hideRoster,
+    photo,
+    photoAction,
+    prizeShow,
+    prizeAction,
   });
   useEffect(() => {
     latestRoster.current = {
@@ -214,8 +310,12 @@ export default function StagePage() {
       selectedPrizeId,
       showRoster,
       hideRoster,
+      photo,
+      photoAction,
+      prizeShow,
+      prizeAction,
     };
-  }, [rosterScope, selectedPrizeId, showRoster, hideRoster]);
+  }, [rosterScope, selectedPrizeId, showRoster, hideRoster, photo, photoAction, prizeShow, prizeAction]);
 
   /*
    * The winners list can be hidden for the room (W, or the remote's switch).
@@ -270,6 +370,21 @@ export default function StagePage() {
         const scope = latestRoster.current;
         if (scope.rosterScope) scope.hideRoster();
         else if (scope.selectedPrizeId) scope.showRoster(scope.selectedPrizeId);
+      } else if (e.key === "r" || e.key === "R") {
+        // R walks the prize announcement: up next, revealed, back to the draw.
+        const { prizeShow: shown, prizeAction: act } = latestRoster.current;
+        act(!shown ? { type: "show" } : !shown.revealed ? { type: "reveal" } : { type: "hide" });
+      } else if (latestRoster.current.rosterScope) {
+        // Photo session keys, only while a board is up: B flips call-up and
+        // backdrop, the arrows move between groups of a big prize.
+        const { photo: current, photoAction: act } = latestRoster.current;
+        if (e.key === "b" || e.key === "B") {
+          act({ type: "mode", mode: current.mode === "call" ? "backdrop" : "call" });
+        } else if (e.key === "ArrowRight") {
+          act({ type: "group", group: current.group + 1 });
+        } else if (e.key === "ArrowLeft") {
+          act({ type: "group", group: current.group - 1 });
+        }
       }
     };
 
@@ -279,15 +394,19 @@ export default function StagePage() {
 
   if (!ready) {
     return (
-      <main className="dark flex h-dvh items-center justify-center bg-base-900">
-        <p className="stage-label text-ink-500">Loading event…</p>
+      <main className="stage-bg dark flex h-dvh items-center justify-center">
+        <p className="stage-label">
+          <AnimatedShinyText className="text-ink-500/80 dark:text-ink-500/80" shimmerWidth={160}>
+            Loading event…
+          </AnimatedShinyText>
+        </p>
       </main>
     );
   }
 
   if (state.prizes.length === 0 || state.participants.length === 0) {
     return (
-      <main className="dark flex h-dvh flex-col items-center justify-center gap-6 bg-base-900 px-8 text-center">
+      <main className="stage-bg dark flex h-dvh flex-col items-center justify-center gap-6 px-8 text-center">
         <h1 className="text-3xl font-semibold text-ink-100">
           Nothing to draw yet
         </h1>
@@ -314,11 +433,23 @@ export default function StagePage() {
      * projector had a scrollbar and the Draw button sat below the fold — on
      * the one screen in the building that nobody can scroll.
      */
+    // Every motion-based (Magic UI) effect on the stage obeys the event's own
+    // "Force reduced motion" switch, not only the OS setting.
+    <MotionConfig reducedMotion={motionOff ? "always" : "user"}>
     <main
-      className="dark relative grid h-dvh grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-base-900"
+      className="stage-bg dark relative grid h-dvh grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
       data-motion={motionOff ? "off" : "on"}
     >
       <Backdrop imageUrl={backgroundUrl} quality={quality} />
+      {/* Its own arrangement per view, so the photo session does not look
+          like the draw with the names swapped. Fainter behind the draw, where
+          names fill the screen. */}
+      <GemField
+        seed={rosterScope ? "photo" : prizeShow ? "prize" : `stage-${drawStyle}`}
+        strength={rosterScope ? 0.6 : 0.4}
+        keepOut={!rosterScope && drawStyle === "wall" ? WALL_KEEP_OUT : undefined}
+        quality={quality}
+      />
       <Confetti ref={confettiRef} quality={quality} />
 
       <div
@@ -358,7 +489,29 @@ export default function StagePage() {
             state={state}
             scope={rosterScope}
             prizeImageUrl={rosterPrizeImageUrl}
+            photo={photo}
             reducedMotion={motionOff}
+          />
+        </div>
+      ) : null}
+
+      {/* ---- Prize announcement ------------------------------------------ */}
+      {/* Before a prize is drawn for: covered, then revealed, by the
+          presenter. Keyed on the prize so a new one always starts covered. */}
+      {shownPrize && prizeShow && !rosterScope ? (
+        <div className="relative z-20 flex min-h-0 flex-1 px-[2vw] py-[3vh]">
+          <PrizeReveal
+            key={prizeShow.prizeId}
+            style={state.settings.prizeRevealStyle ?? "cover"}
+            name={shownPrize.name}
+            imageUrl={shownPrizeImageUrl}
+            revealed={prizeShow.revealed}
+            position={prizePosition}
+            total={lineup.length}
+            toWin={remainingFor(state, shownPrize.id)}
+            lineup={lineup}
+            reducedMotion={motionOff}
+            quality={quality}
           />
         </div>
       ) : null}
@@ -369,8 +522,8 @@ export default function StagePage() {
           The `hidden` attribute would lose to Tailwind's `flex`, so the class
           does it. */}
       <div
-        className={rosterScope ? "hidden" : "relative z-20 flex min-h-0"}
-        aria-hidden={Boolean(rosterScope)}
+        className={rosterScope || shownPrize ? "hidden" : "relative z-20 flex min-h-0"}
+        aria-hidden={Boolean(rosterScope || shownPrize)}
       >
         <div className="relative flex min-h-0 flex-1 flex-col px-[3.3vw] pb-[5vh] pt-[7vh]">
           {/* A scrim local to the centre column. An uploaded background is
@@ -381,7 +534,7 @@ export default function StagePage() {
             className="pointer-events-none absolute inset-0 -z-10"
             style={{
               background:
-                "radial-gradient(ellipse 60% 65% at 50% 50%, rgb(6 6 7 / 0.82), transparent 78%)",
+                "radial-gradient(ellipse 60% 65% at 50% 50%, rgb(16 20 48 / 0.8), transparent 78%)",
             }}
           />
 
@@ -397,11 +550,14 @@ export default function StagePage() {
               style={drawStyle}
               pool={wallPool}
               targetId={reelTargetId}
+              targetIds={runTargets}
+              revealedIds={runRevealed}
               landed={snapshot.revealed !== null}
               durationMs={revealMs}
               quality={quality}
               reducedMotion={motionOff}
               onTick={sound.tick}
+              onFinale={onRevealFinale}
             />
           </div>
 
@@ -503,6 +659,7 @@ export default function StagePage() {
         </StageButton>
       </footer>
     </main>
+    </MotionConfig>
   );
 }
 

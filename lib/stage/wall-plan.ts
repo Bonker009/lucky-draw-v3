@@ -6,11 +6,13 @@
  * *other* names fade out on the way there. Three properties matter, and the
  * unit tests pin each one:
  *
- * - The committed winner is never knocked out. The wall reveals a pick, it
- *   never makes one — if it could eliminate the winner, the projector would
- *   be able to contradict the log.
- * - Every round leaves ceil(alive / 2) standing, so the count the audience is
- *   shown ("31 still in") is exactly what the next frame draws.
+ * - The committed winners are never knocked out. The wall reveals a pick, it
+ *   never makes one — if it could eliminate a winner, the projector would be
+ *   able to contradict the log.
+ * - Every round leaves ceil(alive / 2) standing, except that no round goes
+ *   below the number of winners: a three-winner batch ends on exactly three
+ *   ("last 3 standing"). The count the audience is shown ("31 still in") is
+ *   exactly what the next frame draws.
  * - It is deterministic for a given (pool, winner). A reload or a rehearsal
  *   replay of the same draw knocks the same names out in the same order, so
  *   the show is reproducible the way the draw itself is.
@@ -21,12 +23,19 @@
  * winner id cannot affect any committed result.
  */
 
+/**
+ * A wall batch up to this size reveals its winners one at a time (each card
+ * spotlit with its own hold and fanfare). Larger batches land together:
+ * thirty consecutive spotlights would hold the room for over a minute.
+ */
+export const WALL_SPOTLIGHT_MAX = 8;
+
 export interface WallPlan {
   /** Number of knock-out rounds; 0 when the pool is a single name. */
   rounds: number;
   /**
    * For each pool index, the round (1-based) in which it is knocked out.
-   * The winner holds `rounds + 1`: never out.
+   * Winners hold `rounds + 1`: never out.
    */
   outRound: Uint16Array;
   /** How many are still in after each round, index 0 = before round 1. */
@@ -57,24 +66,29 @@ function mulberry32(seed: number) {
 
 export function planWall(
   poolSize: number,
-  winnerIndex: number,
+  winner: number | readonly number[],
   seedKey: string,
 ): WallPlan {
   if (poolSize < 1) throw new Error("planWall: empty pool");
-  if (winnerIndex < 0 || winnerIndex >= poolSize) {
-    throw new Error("planWall: winner is not in the pool");
+  const winners = new Set(typeof winner === "number" ? [winner] : winner);
+  if (winners.size === 0) throw new Error("planWall: no winner");
+  for (const w of winners) {
+    if (w < 0 || w >= poolSize) throw new Error("planWall: winner is not in the pool");
   }
 
+  // Halve each round, but never below the number of winners: the last round
+  // takes the field to exactly that many.
   const aliveAfter = [poolSize];
-  while (aliveAfter[aliveAfter.length - 1] > 1) {
-    aliveAfter.push(Math.ceil(aliveAfter[aliveAfter.length - 1] / 2));
+  while (aliveAfter[aliveAfter.length - 1] > winners.size) {
+    const next = Math.ceil(aliveAfter[aliveAfter.length - 1] / 2);
+    aliveAfter.push(Math.max(winners.size, next));
   }
   const rounds = aliveAfter.length - 1;
 
-  // Shuffle everyone except the winner once, then hand out knock-out rounds
+  // Shuffle everyone except the winners once, then hand out knock-out rounds
   // in that order: the first batch goes in round 1, the next in round 2…
   const others: number[] = [];
-  for (let i = 0; i < poolSize; i++) if (i !== winnerIndex) others.push(i);
+  for (let i = 0; i < poolSize; i++) if (!winners.has(i)) others.push(i);
   const rand = mulberry32(hash32(`${seedKey}:${poolSize}`));
   for (let i = others.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
@@ -82,7 +96,7 @@ export function planWall(
   }
 
   const outRound = new Uint16Array(poolSize);
-  outRound[winnerIndex] = rounds + 1;
+  for (const w of winners) outRound[w] = rounds + 1;
   let cursor = 0;
   for (let r = 1; r <= rounds; r++) {
     const knocked = aliveAfter[r - 1] - aliveAfter[r];

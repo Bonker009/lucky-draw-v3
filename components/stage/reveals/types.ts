@@ -32,12 +32,26 @@ export interface RevealProps {
   targetId: string | null;
   /** True once the engine has revealed the target. */
   landed: boolean;
+  /**
+   * The whole batch when the engine reveals several winners in one spin
+   * (only the name wall asks for that), and the ones revealed so far.
+   */
+  targetIds?: string[];
+  revealedIds?: string[];
   /** How long the engine will spin for this winner, suspense included. */
   durationMs: number;
   reducedMotion: boolean;
   quality: Quality;
   /** For the tick sound; fired on each visible step of the reveal. */
   onTick?: () => void;
+  /**
+   * For styles that keep revealing after `landed` (see `HOLDS_FINALE` in
+   * `./meta.ts`): called once the whole name is on screen. The stage holds the
+   * celebration and the winners rail for it, so the fanfare lands on the last
+   * letter rather than the first. Such a style must always call it, reduced
+   * motion included, or the winner is never celebrated.
+   */
+  onFinale?: (targetId: string) => void;
 }
 
 /**

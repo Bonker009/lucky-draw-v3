@@ -20,6 +20,18 @@ test.describe("the stage", () => {
   });
 
   test("Stop actually stops a long batch", async ({ page }) => {
+    // A per-winner style: the name wall commits a whole batch before its one
+    // spin (see "a batch knocks out to the last N"), so there is nothing for
+    // Stop to cut short there. Every other style still spins per winner.
+    await seedEvent(page, {
+      participants: 200,
+      prizes: [
+        { name: "Grand Prize", quantity: 3 },
+        { name: "Runner Up", quantity: 25 },
+      ],
+      spinDurationMs: 300,
+      drawStyle: "reel",
+    });
     await page.goto("/stage");
     await expect(page.getByRole("heading", { name: "Grand Prize" })).toBeVisible();
 
@@ -199,6 +211,63 @@ test.describe("no spoilers", () => {
     });
     await expect(rail).toContainText("Winners · 2");
   });
+
+  /**
+   * The split-flap board keeps typing the name for seconds after the engine
+   * reveals. The rail used to print the whole name the moment the first letter
+   * started landing, so the board was racing a list that had already answered.
+   */
+  test("the rail waits for the split-flap board to finish the name", async ({
+    page,
+  }) => {
+    const nameOf = (id: string) => `Guest ${id.slice(1).padStart(4, "0")}`;
+
+    await seedEvent(page, {
+      participants: 50,
+      prizes: [{ name: "Grand Prize", quantity: 3 }],
+      spinDurationMs: 1500,
+      revealHoldMs: 300,
+      drawStyle: "flap",
+    });
+    await page.goto("/stage");
+    await expect(page.getByRole("heading", { name: "Grand Prize" })).toBeVisible();
+
+    const draw = () =>
+      page.evaluate(() => {
+        const bc = new BroadcastChannel("lucky-draw-v3");
+        bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 1 });
+        bc.close();
+      });
+    const rail = page.getByRole("complementary");
+
+    // A first winner all the way through, so the rail is populated.
+    await draw();
+    await expect(rail).toContainText("Winners · 1", { timeout: 20_000 });
+
+    // The engine's hold is padded by the board's typing time, so a draw sent
+    // as soon as the rail updates is rejected as re-entry. Ask until it takes.
+    await expect
+      .poll(
+        async () => {
+          await draw();
+          return (await drawnWinnerIds(page)).length;
+        },
+        { timeout: 20_000, intervals: [500] },
+      )
+      .toBe(2);
+    const [, second] = await drawnWinnerIds(page);
+
+    // Revealed by the engine — the board is typing — but not yet complete.
+    await expect(page.getByTestId("reveal-winner")).toContainText(nameOf(second), {
+      timeout: 20_000,
+    });
+    await expect(rail).not.toContainText(nameOf(second));
+    await expect(rail).toContainText("Winners · 1");
+
+    // Once the last letter is down, it appears.
+    await expect(rail).toContainText(nameOf(second), { timeout: 20_000 });
+    await expect(rail).toContainText("Winners · 2");
+  });
 });
 
 test.describe("durability", () => {
@@ -236,6 +305,9 @@ test.describe("durability", () => {
       participants: 50,
       prizes: [{ name: "Prize", quantity: 10 }],
       spinDurationMs: 3000,
+      // Per-winner, so "exactly one recorded" is the right expectation; a
+      // wall batch commits all five before its spin, as whole records too.
+      drawStyle: "reel",
     });
     await page.goto("/stage");
     await expect(page.getByRole("heading", { name: "Prize" })).toBeVisible();
@@ -501,6 +573,56 @@ test.describe("the wall", () => {
     await expect(winner).toContainText(nameOf(id));
     await expect(wall).toHaveAttribute("data-alive", "1");
   });
+
+  /*
+   * A multi-winner draw on the wall is one knock-out to the last N standing,
+   * then each winner called forward in turn. All N are committed before the
+   * wall starts — so for the whole spin the page must not name any of them,
+   * and the rail must add them one at a time, as each is called, not all at
+   * once when the cards land.
+   */
+  test("a batch knocks out to the last N, then calls them one at a time", async ({
+    page,
+  }) => {
+    const nameOf = (id: string) => `Guest ${id.slice(1).padStart(4, "0")}`;
+
+    await seedEvent(page, {
+      participants: 60,
+      prizes: [{ name: "Prize", quantity: 5 }],
+      spinDurationMs: 2500,
+      revealHoldMs: 1500,
+    });
+    await page.goto("/stage");
+    await expect(page.getByRole("heading", { name: "Prize" })).toBeVisible();
+    const wall = page.getByRole("img", { name: /names in the draw/ });
+    const rail = page.getByRole("complementary");
+
+    await page.evaluate(() => {
+      const bc = new BroadcastChannel("lucky-draw-v3");
+      bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 3 });
+      bc.close();
+    });
+
+    // All three committed up front; none of them named anywhere yet.
+    await page.waitForTimeout(1000);
+    const ids = await drawnWinnerIds(page);
+    expect(ids).toHaveLength(3);
+    await expect(page.getByTestId("reveal-winner")).toHaveCount(0);
+    for (const id of ids) await expect(page.locator("body")).not.toContainText(nameOf(id));
+
+    // The cards land on exactly the three, and the first is called.
+    const caption = page.getByTestId("reveal-winner");
+    await expect(caption).toContainText("Winner 1 of 3", { timeout: 20_000 });
+    await expect(wall).toHaveAttribute("data-alive", "3");
+    await expect(caption).toContainText(nameOf(ids[0]));
+    await expect(rail).toContainText(nameOf(ids[0]));
+    await expect(rail).not.toContainText(nameOf(ids[2]));
+
+    // Then the rest, in commit order.
+    await expect(caption).toContainText("Winner 3 of 3", { timeout: 10_000 });
+    await expect(caption).toContainText(nameOf(ids[2]));
+    for (const id of ids) await expect(rail).toContainText(nameOf(id));
+  });
 });
 
 test.describe("every draw style", () => {
@@ -631,6 +753,24 @@ test.describe("photo session", () => {
       await expect(board.getByText(name, { exact: true })).toBeVisible();
     }
 
+    // Check-in from the remote: the presenter ticks off whoever has come up,
+    // and the projector greys that name out and counts them.
+    const first = `Guest ${winners[0].replace("p", "").padStart(4, "0")}`;
+    const checkIn = control.getByRole("region", { name: "Check-in" });
+    await checkIn
+      .getByRole("checkbox", { name: new RegExp(first) })
+      .click({ timeout: 10_000 });
+    await expect(board.getByText("1 of 3")).toBeVisible({ timeout: 10_000 });
+    await expect(board.getByText("On stage", { exact: true })).toHaveCount(1);
+    await expect(checkIn.getByText("1 of 3")).toBeVisible();
+
+    // Backdrop: the screen behind the group in the photo — no name list.
+    await photoPanel.getByRole("radio", { name: "Backdrop" }).click();
+    await expect(board.getByText("Winners", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(board.getByRole("listitem")).toHaveCount(0);
+
     // Control reports the board is up, and can take it back down.
     await expect(photoPanel.getByText("On screen")).toBeVisible({
       timeout: 10_000,
@@ -669,10 +809,15 @@ test.describe("photo session", () => {
   });
 });
 
-test("a long photo-call list scrolls itself", async ({ page }) => {
+/*
+ * A big prize is called in groups of ten, numbered straight through, rather
+ * than as one list scrolling past: people were waiting for their name to come
+ * round again. The next group is named so it can line up.
+ */
+test("a big photo call pages in groups of ten", async ({ page }) => {
   await seedEvent(page, {
     participants: 200,
-    prizes: [{ name: "Consolation", quantity: 120 }],
+    prizes: [{ name: "Consolation", quantity: 25 }],
     spinDurationMs: 10,
     revealHoldMs: 10,
   });
@@ -681,31 +826,90 @@ test("a long photo-call list scrolls itself", async ({ page }) => {
 
   await page.evaluate(() => {
     const bc = new BroadcastChannel("lucky-draw-v3");
-    bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 120 });
+    bc.postMessage({ kind: "cmd:draw", prizeId: "z0", count: 25 });
     bc.close();
   });
   await expect
     .poll(async () => (await drawnWinnerIds(page)).length, { timeout: 60_000 })
-    .toBe(120);
+    .toBe(25);
 
-  await page.evaluate(() => {
-    const bc = new BroadcastChannel("lucky-draw-v3");
-    bc.postMessage({ kind: "cmd:showRoster", scope: "z0" });
-    bc.close();
-  });
+  const send = (message: unknown) =>
+    page.evaluate((m) => {
+      const bc = new BroadcastChannel("lucky-draw-v3");
+      bc.postMessage(m);
+      bc.close();
+    }, message);
 
-  const list = page.getByRole("region", { name: /Consolation/ }).getByRole("list");
-  await expect(list).toBeVisible({ timeout: 10_000 });
+  // Wait for the batch to finish on screen; a board is refused mid-draw.
+  await expect
+    .poll(
+      async () => {
+        await send({ kind: "cmd:showRoster", scope: "z0" });
+        return page.getByRole("region", { name: /Consolation/ }).count();
+      },
+      { timeout: 20_000, intervals: [500] },
+    )
+    .toBe(1);
 
-  // 120 names cannot fit one screen at this size, so the board must overflow
-  // and then move on its own rather than clipping the tail.
-  const overflow = await list.evaluate(
-    (el) => el.scrollHeight - el.clientHeight,
-  );
-  expect(overflow).toBeGreaterThan(0);
+  const board = page.getByRole("region", { name: /Consolation/ });
+  await expect(board.getByRole("listitem")).toHaveCount(10);
+  await expect(board.getByText("Group 1 of 3")).toBeVisible();
+  await expect(board.getByText(/Get ready · group 2/)).toBeVisible();
 
-  const before = await list.evaluate((el) => el.scrollTop);
-  await page.waitForTimeout(5000);
-  const after = await list.evaluate((el) => el.scrollTop);
-  expect(after).toBeGreaterThan(before);
+  await send({ kind: "cmd:photo", action: { type: "group", group: 2 } });
+  await expect(board.getByText("Group 3 of 3")).toBeVisible({ timeout: 10_000 });
+  await expect(board.getByRole("listitem")).toHaveCount(5);
+  // Numbering runs straight through the groups.
+  await expect(board.getByRole("listitem").first()).toContainText("21");
+  await expect(board.getByText(/Get ready/)).toHaveCount(0);
+});
+
+/*
+ * Announcing a prize before drawing for it. Every style is held to the same
+ * contract: covered shows how many are to be won but not what, the reveal
+ * names it, and a draw always takes the screen back.
+ */
+test.describe("every prize reveal style", () => {
+  for (const prizeRevealStyle of ["cover", "lineup", "board", "shutter", "focus"] as const) {
+    test(`${prizeRevealStyle}: covered, revealed, then handed back to the draw`, async ({
+      page,
+    }) => {
+      await seedEvent(page, {
+        participants: 40,
+        prizes: [
+          { name: "Motorbike", quantity: 3 },
+          { name: "Headphones", quantity: 2 },
+        ],
+        spinDurationMs: 600,
+        prizeRevealStyle,
+      });
+      await page.goto("/stage");
+      await expect(page.getByRole("heading", { name: "Motorbike" })).toBeVisible();
+
+      const send = (message: unknown) =>
+        page.evaluate((m) => {
+          const bc = new BroadcastChannel("lucky-draw-v3");
+          bc.postMessage(m);
+          bc.close();
+        }, message);
+
+      await send({ kind: "cmd:prize", action: { type: "show" } });
+      const covered = page.getByRole("region", { name: "Prize reveal: prize 1 of 2" });
+      await expect(covered).toBeVisible({ timeout: 10_000 });
+      await expect(covered).toContainText("3");
+      await expect(covered.getByText("Motorbike")).toHaveCount(0);
+
+      await send({ kind: "cmd:prize", action: { type: "reveal" } });
+      await expect(
+        page.getByRole("region", { name: "Prize reveal: Motorbike" }),
+      ).toBeVisible({ timeout: 10_000 });
+
+      // Draw takes the screen back from the announcement.
+      await send({ kind: "cmd:draw", prizeId: "z0", count: 1 });
+      await expect(page.getByRole("region", { name: /Prize reveal/ })).toHaveCount(0, {
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId("reveal-winner")).toHaveCount(1, { timeout: 20_000 });
+    });
+  }
 });

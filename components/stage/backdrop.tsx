@@ -21,7 +21,7 @@ export function Backdrop({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-0 overflow-hidden bg-base-900"
+      className="stage-bg pointer-events-none absolute inset-0 overflow-hidden"
     >
       {imageUrl ? (
         // 0.28, not 0.45. People upload busy photos, and at the old opacity
@@ -74,12 +74,13 @@ export function Backdrop({
         />
       ) : null}
 
-      {/* A fixed vignette keeps the eye on the centre of a large screen. */}
+      {/* A fixed vignette keeps the eye on the centre of a large screen. Deep
+          navy, not black: a near-black rim read as a hole cut in the gradient. */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse at center, transparent 40%, rgb(6 6 7 / 0.75) 100%)",
+            "radial-gradient(ellipse at center, transparent 45%, rgb(12 14 36 / 0.6) 100%)",
         }}
       />
     </div>

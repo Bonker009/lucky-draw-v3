@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import { canvasMeasure, fitFontSize } from "@/lib/stage/fit-text";
+import { BorderBeam } from "@/components/ui/border-beam";
 import { useFittedSize } from "./use-fitted-size";
 import type { RevealEntry, RevealProps } from "./types";
 
@@ -461,6 +462,20 @@ export function Envelope({
                 <div className="absolute inset-0 overflow-hidden rounded-[calc(var(--u)*0.136)] bg-[linear-gradient(160deg,#24252c_0%,#16171c_55%,#101115_100%)] p-[calc(var(--u)*0.19)] [backface-visibility:hidden] [transform:rotateY(180deg)] shadow-[inset_0_0_0_2px_rgb(242_214_138/0.6),0_calc(var(--u)*0.23)_calc(var(--u)*0.55)_rgb(0_0_0/0.7),0_0_calc(var(--u)*0.45)_rgb(242_214_138/0.2)]">
                   {turned && targetName ? (
                     <>
+                      {/* A gold beam travelling the edge of the turned card.
+                          Gold is right here — this card is the winner — and it
+                          only exists once turned, like the name. Motion keeps
+                          animating it under reduced motion, so it is not
+                          mounted then, nor when frames are already slipping. */}
+                      {!rm && quality !== "minimal" ? (
+                        <BorderBeam
+                          size={Math.round(u * 0.9)}
+                          duration={5}
+                          borderWidth={2}
+                          colorFrom="#f2d68a"
+                          colorTo="#fff4d6"
+                        />
+                      ) : null}
                       <div className="absolute inset-[calc(var(--u)*0.073)] rounded-[calc(var(--u)*0.082)] shadow-[inset_0_0_0_1px_rgb(242_214_138/0.3)]" />
                       <span aria-hidden className="absolute -right-[calc(var(--u)*0.06)] bottom-[calc(var(--u)*0.32)] text-[calc(var(--u)*1.36)] leading-none font-semibold tracking-[-0.07em] text-gold-bright/[0.07]">
                         {initials(targetName)}

@@ -10,7 +10,9 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { DRAW_STYLE_META } from "@/components/stage/reveals/meta";
-import { DRAW_STYLES } from "@/lib/domain/types";
+import { PRIZE_REVEAL_META } from "@/components/stage/prize-reveals/meta";
+import { MagicSurface } from "@/components/setup/magic-surface";
+import { DRAW_STYLES, PRIZE_REVEAL_STYLES } from "@/lib/domain/types";
 import { useAssetUrl } from "@/lib/hooks/use-asset-url";
 import { storeAudio, storeImage } from "@/lib/persist/assets";
 import { useEventStore } from "@/lib/store/event-store";
@@ -60,12 +62,13 @@ export function PresentationPanel() {
               const meta = DRAW_STYLE_META[style];
               const selected = (settings.drawStyle ?? "wall") === style;
               return (
-                <label
+                <MagicSurface
                   key={style}
-                  className={`flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors ${
-                    selected
-                      ? "border-foreground bg-muted/60"
-                      : "border-border hover:bg-muted/40"
+                  className={`rounded-lg ${selected ? "ring-1 ring-foreground" : ""}`}
+                >
+                <label
+                  className={`flex cursor-pointer gap-3 rounded-lg p-3 ${
+                    selected ? "bg-muted/60" : ""
                   }`}
                 >
                   <input
@@ -85,6 +88,53 @@ export function PresentationPanel() {
                     </span>
                   </span>
                 </label>
+                </MagicSurface>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <Separator className="bg-muted" />
+
+        {/* Prize reveal. How the stage announces a prize before it is drawn
+            for — run from the remote ("Show", then "Reveal") or R on the
+            stage. Presentation only, like the draw style. */}
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-3 text-sm font-medium text-foreground/75">
+            Prize reveal
+          </legend>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {PRIZE_REVEAL_STYLES.map((style) => {
+              const meta = PRIZE_REVEAL_META[style];
+              const selected = (settings.prizeRevealStyle ?? "cover") === style;
+              return (
+                <MagicSurface
+                  key={style}
+                  className={`rounded-lg ${selected ? "ring-1 ring-foreground" : ""}`}
+                >
+                  <label
+                    className={`flex cursor-pointer gap-3 rounded-lg p-3 ${
+                      selected ? "bg-muted/60" : ""
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="prize-reveal-style"
+                      value={style}
+                      checked={selected}
+                      onChange={() => patch({ prizeRevealStyle: style })}
+                      className="mt-0.5 size-4 shrink-0 accent-foreground"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium text-foreground">
+                        {meta.label}
+                      </span>
+                      <span className="text-xs leading-relaxed text-muted-foreground">
+                        {meta.hint}
+                      </span>
+                    </span>
+                  </label>
+                </MagicSurface>
               );
             })}
           </div>

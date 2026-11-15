@@ -190,6 +190,36 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
+  --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  --animate-shiny-text: shiny-text 8s infinite;
+  @keyframes shimmer-slide {
+  to {
+    transform: translate(calc(100cqw - 100%), 0);
+    }
+  }
+  @keyframes spin-around {
+  0% {
+    transform: translateZ(0) rotate(0);
+    }
+  15%, 35% {
+    transform: translateZ(0) rotate(90deg);
+    }
+  65%, 85% {
+    transform: translateZ(0) rotate(270deg);
+    }
+  100% {
+    transform: translateZ(0) rotate(360deg);
+    }
+  }
+  @keyframes shiny-text {
+  0%, 90%, 100% {
+    background-position: calc(-100% - var(--shiny-width)) 0;
+    }
+  30%, 60% {
+    background-position: calc(100% + var(--shiny-width)) 0;
+    }
+  }
 }
 
 @layer base {
@@ -441,6 +471,151 @@
   animation: pulse-soft 2s ease-in-out infinite;
 }
 
+/*
+ * Split-flap finish: once the last letter is down the name glints once, left
+ * to right, on the same beat as the fanfare. `--i` is the tile's index.
+ */
+@keyframes flap-glint {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  35% {
+    filter: brightness(1.7);
+  }
+}
+
+.flap-done [data-state="set"] {
+  animation: flap-glint 700ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+
+/* ---- Stage background ---------------------------------------------------
+ * Navy into plum, with a cool pool on the left and a plum glow bottom right.
+ * Still dark enough for a projector, and the white names and gold winner
+ * read against it as well as they did against near-black.
+ */
+.stage-bg {
+  background:
+    radial-gradient(circle at 85% 92%, rgb(112 32 68 / 0.55) 0%, rgb(112 32 68 / 0) 50%),
+    radial-gradient(circle at 12% 55%, rgb(45 56 118 / 0.5) 0%, rgb(45 56 118 / 0) 48%),
+    linear-gradient(180deg, #132145 0%, #1d2654 42%, #291f4d 76%, #361b3b 100%);
+}
+
+/* ---- Gem field (components/stage/gem-field.tsx) --------------------------
+ * Transform and opacity only, so it all stays on the compositor. Durations,
+ * delays and the float height come from inline styles per gem.
+ */
+@keyframes gem-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(calc(var(--gem-amp, 1.5vh) * -1)) rotate(1.8deg);
+  }
+}
+
+.gem-float {
+  will-change: transform;
+  animation: gem-float 5s ease-in-out infinite;
+}
+
+@keyframes gem-glint {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.7) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.3) rotate(14deg);
+  }
+}
+
+.gem-glint {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gem-glint 3.4s ease-in-out infinite;
+}
+
+@keyframes gem-spark {
+  0% {
+    opacity: 0;
+    transform: translateY(2vh) scale(0.4) rotate(0deg);
+  }
+  25% {
+    opacity: var(--spark-peak, 0.9);
+  }
+  50% {
+    opacity: var(--spark-peak, 0.9);
+    transform: translateY(-2.3vh) scale(1.15) rotate(45deg);
+  }
+  85% {
+    opacity: calc(var(--spark-peak, 0.9) * 0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6.5vh) scale(0.3) rotate(90deg);
+  }
+}
+
+/* Still, a sparkle stays visible; the animation takes it from there. */
+.gem-spark {
+  opacity: calc(var(--spark-peak, 0.9) * 0.7);
+  animation: gem-spark 5s linear infinite;
+}
+
+/* ---- Prize reveals (components/stage/prize-reveals/) ---------------------
+ * The cover lifting bottom-up, one sweep of light across the photo, and the
+ * name rising in after it.
+ */
+@keyframes prize-unveil {
+  from {
+    clip-path: inset(100% 0 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.prize-unveil {
+  animation: prize-unveil 1100ms cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+
+@keyframes prize-sweep {
+  from {
+    transform: translateX(-140%) skewX(-12deg);
+  }
+  to {
+    transform: translateX(260%) skewX(-12deg);
+  }
+}
+
+.prize-sweep {
+  transform: translateX(-140%) skewX(-12deg);
+  animation: prize-sweep 1100ms 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes prize-rise {
+  from {
+    opacity: 0;
+    transform: translateY(3vh);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.prize-rise {
+  animation: prize-rise 600ms 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.prize-rise-late {
+  animation: prize-rise 600ms 1150ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
 /* Honour the OS setting, and let the app force it from settings. */
 /*
  * Motion opt-out.
@@ -463,7 +638,18 @@
     .reveal-rise,
     .win-flash,
     .rail-enter,
-    .prize-swap
+    .prize-swap,
+    .flap-done [data-state="set"],
+    .gem-float,
+    .gem-glint,
+    .gem-spark,
+    .animate-shimmer-slide,
+    .animate-spin-around,
+    .animate-shiny-text,
+    .prize-unveil,
+    .prize-sweep,
+    .prize-rise,
+    .prize-rise-late
   ) {
     animation: none !important;
   }
@@ -476,12 +662,21 @@
     .reveal-rise,
     .win-flash,
     .rail-enter,
-    .prize-swap
+    .prize-swap,
+    .flap-done [data-state="set"],
+    .gem-float,
+    .gem-glint,
+    .gem-spark,
+    .animate-shimmer-slide,
+    .animate-spin-around,
+    .animate-shiny-text,
+    .prize-unveil,
+    .prize-sweep,
+    .prize-rise,
+    .prize-rise-late
   ) {
   animation: none !important;
 }
-
-
 
 /* Keep focus visible on the operator surfaces; it is a keyboard-driven show. */
 :focus-visible {

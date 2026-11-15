@@ -36,6 +36,20 @@ export const DRAW_STYLES: readonly DrawStyle[] = [
   "reel",
 ];
 
+/**
+ * How the stage announces the prize before it is drawn for. Presentation
+ * only, like `DrawStyle`; the presenter switches between them in setup.
+ */
+export type PrizeRevealStyle = "cover" | "lineup" | "board" | "shutter" | "focus";
+
+export const PRIZE_REVEAL_STYLES: readonly PrizeRevealStyle[] = [
+  "cover",
+  "lineup",
+  "board",
+  "shutter",
+  "focus",
+];
+
 export interface Settings {
   eventName: string;
   /** Seed for the deterministic RNG. Fixed before the event, shown in the commitment. */
@@ -55,6 +69,8 @@ export interface Settings {
   drawStyle: DrawStyle;
   /** The winners list beside the stage. Hidden gives the reveal the full width. */
   showWinnersRail: boolean;
+  /** Absent in logs written before prize reveals existed; folds to "cover". */
+  prizeRevealStyle: PrizeRevealStyle;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -68,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reducedMotionOverride: false,
   drawStyle: "wall",
   showWinnersRail: true,
+  prizeRevealStyle: "cover",
 };
 
 /**

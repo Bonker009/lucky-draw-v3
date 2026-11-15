@@ -8,6 +8,8 @@ const SERVER_SNAPSHOT: EngineSnapshot = {
   prizeId: null,
   revealed: null,
   target: null,
+  targets: [],
+  spinMs: 0,
   pending: 0,
   batch: [],
   error: null,

@@ -1,3 +1,7 @@
+"use client";
+
+import { AnimatePresence } from "motion/react";
+import { AnimatedListItem } from "@/components/ui/animated-list";
 import { participantName, winnersFor } from "@/lib/domain/selectors";
 import type { DrawState } from "@/lib/domain/types";
 
@@ -53,12 +57,17 @@ export function WinnersList({
               : ""
           }`}
         >
+          {/* initial={false}: the winners already on the list when the
+              remote opens stay put; only one revealed while it is open
+              springs in at the top. */}
+          <AnimatePresence initial={false}>
           {winners
             .map((w, i) => ({ w, n: i + 1 }))
             .reverse()
             .map(({ w, n }, i) => (
-              <li
-                key={w.seq}
+              <li key={w.seq}>
+              <AnimatedListItem>
+              <div
                 className={`flex items-center gap-3 rounded-lg px-2 ${wide ? "py-2" : "py-1.5"} ${
                   i === 0 ? "bg-gold-ui/10" : ""
                 }`}
@@ -79,8 +88,11 @@ export function WinnersList({
                     minute: "2-digit",
                   })}
                 </span>
+              </div>
+              </AnimatedListItem>
               </li>
             ))}
+          </AnimatePresence>
         </ol>
       )}
     </section>

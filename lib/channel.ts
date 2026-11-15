@@ -1,4 +1,6 @@
 import type { Settings, StoredEvent } from "@/lib/domain/types";
+import type { PhotoState } from "@/lib/stage/photo-session";
+import type { PrizeShow } from "@/lib/stage/prize-show";
 
 export const CHANNEL_NAME = "lucky-draw-v3";
 
@@ -70,6 +72,14 @@ export type Command =
    */
   | { kind: "cmd:showRoster"; scope: string }
   | { kind: "cmd:hideRoster" }
+  /**
+   * Photo session presentation: mode, group, check-in, no-show. A
+   * `PhotoAction`, checked by the stage against the roster that is up (see
+   * `applyPhotoAction`) — typed loosely because any tab can post anything.
+   */
+  | { kind: "cmd:photo"; action: unknown }
+  /** Announce / reveal / hide a prize. A `PrizeAction`, checked by the stage. */
+  | { kind: "cmd:prize"; action: unknown }
   | { kind: "cmd:requestSnapshot" };
 
 /** Broadcasts travel stage -> everyone, so other windows can mirror it. */
@@ -84,6 +94,10 @@ export type Broadcast =
       pending: number;
       /** Which photo-call board is up, if any. */
       roster?: string | null;
+      /** The photo session's mode, group and check-ins, while a board is up. */
+      photo?: PhotoState | null;
+      /** The prize announced on the projector, if any, and whether revealed. */
+      prizeShow?: PrizeShow | null;
       /**
        * How many winners, in log order, the projector has revealed. During a
        * spin the log already holds the winner the drum is heading for; a

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Eraser, Minus, Play, Plus, SkipForward, Square, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
 
 /** Quick counts. Anything else goes through the stepper. */
 const PRESETS = [1, 3, 5, 10];
@@ -120,11 +121,21 @@ export function ActionPanel({
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <Button
-          size="lg"
+        {/* The one button that matters, so it carries a slow sheen while it
+            is ready to press. Ink, not gold — gold means "winner" — and the
+            sheen stops while a draw runs or the stage is gone, so a moving
+            button never competes with the show. */}
+        <ShimmerButton
+          type="button"
           disabled={!canDraw}
           onClick={onDraw}
-          className="col-span-2 h-14 flex-col gap-0 text-lg"
+          background="var(--primary)"
+          shimmerColor={canDraw && !busy ? "var(--primary-foreground)" : "transparent"}
+          shimmerDuration="3.2s"
+          // Literal: the button scopes its own `--radius`, and a value built
+          // from the theme's `--radius` would then reference itself.
+          borderRadius="10px"
+          className="col-span-2 h-14 flex-col gap-0 border-transparent px-4 py-0 text-lg font-medium text-primary-foreground disabled:pointer-events-none disabled:opacity-50"
         >
           <span className="flex items-center gap-2">
             <Play className="size-5" />
@@ -138,7 +149,7 @@ export function ActionPanel({
               ×{count} · {prizeName}
             </span>
           ) : null}
-        </Button>
+        </ShimmerButton>
         <Button
           variant="destructive"
           size="lg"

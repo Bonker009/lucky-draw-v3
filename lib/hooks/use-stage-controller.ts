@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FLAP_TYPING_MS } from "@/components/stage/reveals/flap-timing";
+import { FLAP_TYPING_MS } from "@/lib/stage/flap-plan";
+import { WALL_SPOTLIGHT_MAX } from "@/lib/stage/wall-plan";
+import {
+  PHOTO_INITIAL,
+  applyPhotoAction,
+  photoRoster,
+  type PhotoState,
+} from "@/lib/stage/photo-session";
+import { applyPrizeAction, type PrizeShow } from "@/lib/stage/prize-show";
 import { computeDraw } from "@/lib/domain/draw";
 import { nextAvailablePrize, remainingFor } from "@/lib/domain/selectors";
 import { getEngine } from "@/lib/engine/draw-engine";
@@ -29,6 +37,14 @@ export interface StageController {
   rosterScope: string | null;
   showRoster: (scope: string) => void;
   hideRoster: () => void;
+  /** The photo session's presentation state; reset each time a board goes up. */
+  photo: PhotoState;
+  /** Same path as a remote's `cmd:photo`, for the stage's own keys. */
+  photoAction: (action: unknown) => void;
+  /** The prize announced on the projector, if any. */
+  prizeShow: PrizeShow | null;
+  /** Same path as a remote's `cmd:prize`, for the stage's own keys. */
+  prizeAction: (action: unknown) => void;
   error: string | null;
   clearError: () => void;
 }
@@ -57,6 +73,8 @@ export function useStageController(options: {
   // null means "follow the running order"; an explicit id pins the choice.
   const [pinnedPrizeId, setPinnedPrizeId] = useState<string | null>(null);
   const [rosterScope, setRosterScope] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<PhotoState>(PHOTO_INITIAL);
+  const [prizeShow, setPrizeShow] = useState<PrizeShow | null>(null);
   // How many winners existed when the current run started. Taken inside
   // draw(), before the engine commits anything, so it never races a commit.
   const [runBaseline, setRunBaseline] = useState(0);
@@ -89,6 +107,8 @@ export function useStageController(options: {
     isOwner,
     rosterScope,
     shownWinners,
+    photo,
+    prizeShow,
   });
 
   useEffect(() => {
@@ -98,8 +118,10 @@ export function useStageController(options: {
       isOwner,
       rosterScope,
       shownWinners,
+      photo,
+      prizeShow,
     };
-  }, [state, selectedPrizeId, isOwner, rosterScope, shownWinners]);
+  }, [state, selectedPrizeId, isOwner, rosterScope, shownWinners, photo, prizeShow]);
 
   useEffect(() => {
     void load();
@@ -126,8 +148,10 @@ export function useStageController(options: {
       const engine = getEngine();
       if (engine.isRunning) return;
 
-      // A draw takes the screen back from the photo-call board.
+      // A draw takes the screen back from the photo-call board and from a
+      // prize announcement.
       setRosterScope(null);
+      setPrizeShow(null);
       setRunBaseline(latest.current.state.winners.length);
 
       const settings = latest.current.state.settings;
@@ -144,6 +168,13 @@ export function useStageController(options: {
             settings.revealHoldMs +
             (settings.drawStyle === "flap" ? FLAP_TYPING_MS : 0),
           reducedMotion: reducedMotion || settings.reducedMotionOverride,
+          // The name wall plays a multi-winner draw as one knock-out to the
+          // last N standing, then calls each of them forward. Every other
+          // style still spins once per winner.
+          batchReveal:
+            (settings.drawStyle ?? "wall") === "wall"
+              ? { spotlightMax: WALL_SPOTLIGHT_MAX }
+              : undefined,
           onCommit: async () => {
             // Plan one winner at a time, against the state as it is right
             // now, and commit it in the same step.
@@ -201,9 +232,35 @@ export function useStageController(options: {
     if (getEngine().isRunning) return;
     getEngine().dismiss();
     setRosterScope(scope);
+    setPrizeShow(null);
+    // Every board starts at call-up, group one, nobody checked in.
+    setPhoto(PHOTO_INITIAL);
   }, []);
 
   const hideRoster = useCallback(() => setRosterScope(null), []);
+
+  const prizeAction = useCallback((action: unknown) => {
+    // Like a photo call, a prize board replaces the reel: never mid-spin.
+    if (getEngine().isRunning) return;
+    const { state: current, selectedPrizeId: selectedId } = latest.current;
+    const next = applyPrizeAction(latest.current.prizeShow, action, current, selectedId);
+    if (next === latest.current.prizeShow) return;
+    if (next && !latest.current.prizeShow) {
+      // Announcing a prize clears the winner left on screen and any board.
+      getEngine().dismiss();
+      setRosterScope(null);
+    }
+    // Keep the ref current now, so a "show" and a "reveal" posted back to
+    // back both land.
+    latest.current = { ...latest.current, prizeShow: next };
+    setPrizeShow(next);
+  }, []);
+
+  const photoAction = useCallback((action: unknown) => {
+    const { state: current, rosterScope: scope } = latest.current;
+    if (!scope) return;
+    setPhoto((prev) => applyPhotoAction(prev, action, photoRoster(current, scope)));
+  }, []);
 
   const nextPrize = useCallback(() => {
     const { state: current, selectedPrizeId: prizeId } = latest.current;
@@ -254,6 +311,12 @@ export function useStageController(options: {
         case "cmd:hideRoster":
           hideRoster();
           break;
+        case "cmd:photo":
+          photoAction(message.action);
+          break;
+        case "cmd:prize":
+          prizeAction(message.action);
+          break;
         case "cmd:requestSnapshot": {
           // BroadcastChannel has no replay, so a control window opened after
           // the stage would otherwise never learn the current phase.
@@ -266,6 +329,8 @@ export function useStageController(options: {
             revealed: current.revealed,
             pending: current.pending,
             roster: latest.current.rosterScope,
+            photo: latest.current.rosterScope ? latest.current.photo : null,
+            prizeShow: latest.current.prizeShow,
             shown: latest.current.shownWinners,
           });
           break;
@@ -291,6 +356,8 @@ export function useStageController(options: {
     load,
     nextPrize,
     options.isWriter,
+    photoAction,
+    prizeAction,
     showRoster,
     stop,
     undo,
@@ -306,9 +373,13 @@ export function useStageController(options: {
       revealed: snapshot.revealed,
       pending: snapshot.pending,
       roster: rosterScope,
+      photo: rosterScope ? photo : null,
+      prizeShow,
       shown: shownWinners,
     });
   }, [
+    photo,
+    prizeShow,
     rosterScope,
     shownWinners,
     options.isWriter,
@@ -331,6 +402,10 @@ export function useStageController(options: {
     rosterScope,
     showRoster,
     hideRoster,
+    photo,
+    photoAction,
+    prizeShow,
+    prizeAction,
     error: lastError ?? snapshot.error,
     clearError,
   };
