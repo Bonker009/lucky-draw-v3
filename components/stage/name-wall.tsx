@@ -95,8 +95,16 @@ const MAX_FONT = 26;
 /** Typical name length used to size columns; longer names are truncated. */
 const TYPICAL_CHARS = 13;
 const SWEEP_PX = 260;
+/** Blocks this close behind the sweep's leading edge are still lit by it. */
+const SWEEP_GLOW_PX = 170;
 /** Idle shimmer redraw interval — a slow glint, not 60fps of work while waiting. */
-const SHIMMER_MS = 50;
+const SHIMMER_MS = 33;
+/** The idle sheen crosses the wall once per period, in this share of it. */
+const SHEEN_PERIOD_MS = 7000;
+const SHEEN_SHARE = 0.55;
+const SHEEN_PX = 210;
+/** One lap of the border beam around a face-off card. */
+const BEAM_MS = 2600;
 
 const INK = "245 245 247";
 const GOLD = "242 214 138";
@@ -127,7 +135,9 @@ function computeLayout(n: number, w: number, h: number): Layout {
     const rows = Math.ceil(n / cols);
     const cellW = w / cols;
     const cellH = h / rows;
-    const font = Math.min(MAX_FONT, cellH * 0.6, (cellW - 16) / (TYPICAL_CHARS * 0.56));
+    // Each name sits in a block with its own padding, so the text gets a
+    // little less of the cell than it did as bare text.
+    const font = Math.min(MAX_FONT, cellH * 0.58, (cellW - 22) / (TYPICAL_CHARS * 0.56));
     if (!best || font > best.font + 0.25) {
       best = { mode: "names", cols, cellW, cellH, font, offsetX: 0, offsetY: 0 };
     }
@@ -139,7 +149,7 @@ function computeLayout(n: number, w: number, h: number): Layout {
     layout = { mode: "dots", cols, cellW: w / cols, cellH: h / Math.ceil(n / cols), font: 14, offsetX: 0, offsetY: 0 };
   } else {
     // Don't stretch a short roster's rows across the whole height.
-    layout.cellH = Math.min(layout.cellH, layout.font * 1.9);
+    layout.cellH = Math.min(layout.cellH, layout.font * 2.3);
   }
   const rows = Math.ceil(n / layout.cols);
   layout.offsetY = Math.max(0, (h - rows * layout.cellH) / 2);
@@ -222,6 +232,8 @@ export function NameWall({
   const fontFamily = useRef("sans-serif");
   const measureRef = useRef<Measure | null>(null);
   const lastShimmer = useRef(0);
+  /** Per-entry (left, drop, glow) for the frame being drawn; reused, never reallocated per frame. */
+  const stateBuf = useRef(new Float32Array(0));
 
   // Everything a running sweep reads but must not restart on.
   const live = useRef({ pool, durationMs, reducedMotion, quality, onTick });
@@ -364,6 +376,8 @@ export function NameWall({
 
     // ---- Sweep band ------------------------------------------------------
     const active = run && run.sweep && done < run.ends.length && run.plan.aliveAfter[done] > GATHER ? done : -1;
+    /** x of the sweep's leading edge, so blocks it has just passed can flash. */
+    let sweepEdge: number | null = null;
     if (run && active >= 0) {
       const span = run.ends[active] - run.starts[active];
       const p = Math.min(1, Math.max(0, (elapsed - run.starts[active]) / span));
@@ -376,6 +390,7 @@ export function NameWall({
       ctx.fillRect(sweepX, 0, SWEEP_PX, h);
       // A bright leading edge with a soft halo, so the room can follow it.
       const edge = sweepX + SWEEP_PX;
+      sweepEdge = edge;
       const halo = ctx.createLinearGradient(edge - 18, 0, edge + 18, 0);
       halo.addColorStop(0, `rgb(${INK} / 0)`);
       halo.addColorStop(0.5, `rgb(${INK} / 0.22)`);
@@ -389,53 +404,142 @@ export function NameWall({
     // ---- The wall --------------------------------------------------------
     const fontPx = layout.mode === "names" ? Math.round(layout.font) : 14;
     ctx.textBaseline = "middle";
-    const tiles = run !== null && !gatherOn && standingCount <= 64 && layout.mode === "names";
     const shimmer = !run && !rm && q === "full";
 
-    /** Opacity of a wall entry, its drop in px, and whether it still stands. */
+    /**
+     * A wall entry: `k` is how much of it is left (1 standing, 0 gone), `a`
+     * the matching opacity for the dot wall, and `drop` its fall in px.
+     */
     const wallState = (i: number, cx: number) => {
-      if (!run) {
-        const a = shimmer ? 0.72 + 0.2 * Math.max(0, Math.sin(now / 900 + i * 2.39)) ** 6 : 0.78;
-        return { a, drop: 0, standing: true };
-      }
+      if (!run) return { a: 0.78, k: 1, drop: 0, standing: true };
       const o = outAt(i, cx);
-      if (elapsed < o) return { a: 1, drop: 0, standing: true };
+      if (elapsed < o) return { a: 1, k: 1, drop: 0, standing: true };
       const fade = run.plan.outRound[i] === rounds ? FINAL_FADE_MS : FADE_MS;
       const t = Math.min(1, (elapsed - o) / fade);
-      return { a: 1 - ease(t) * 0.94, drop: rm ? 0 : ease(t) * DROP_PX, standing: false };
+      return { a: 1 - ease(t) * 0.94, k: 1 - ease(t), drop: rm ? 0 : ease(t) * DROP_PX, standing: false };
     };
 
     if (layout.mode === "names") {
-      ctx.font = `500 ${fontPx}px ${fontFamily.current}`;
+      // Every name is a block: a small card with a hairline border and a lit
+      // top edge, the way a shadcn badge reads. They are painted here rather
+      // than mounted as components — one element per name is the v2 failure —
+      // and batched into three paths, so 500 blocks cost three fills a frame,
+      // not a thousand.
+      const gx = Math.max(2, Math.min(6, layout.cellW * 0.035));
+      const gy = Math.max(1.5, Math.min(5, layout.cellH * 0.07));
+      const cw = layout.cellW - gx * 2;
+      const ch = layout.cellH - gy * 2;
+      const radius = Math.min(9, ch * 0.3);
+      const flat = q === "minimal";
+
+      // The idle sheen: one slow diagonal glint across the blocks, then a rest.
+      const sheenPhase = (now % SHEEN_PERIOD_MS) / (SHEEN_PERIOD_MS * SHEEN_SHARE);
+      const sheenAt =
+        shimmer && sheenPhase < 1 ? sheenPhase * (w + h * 0.6 + SHEEN_PX * 2) - SHEEN_PX : null;
+
+      if (stateBuf.current.length < n * 3) stateBuf.current = new Float32Array(n * 3);
+      const buf = stateBuf.current;
+      const standingPath = new Path2D();
+      const lipPath = new Path2D();
+      const ghostPath = new Path2D();
+
       for (let i = 0; i < n; i++) {
-        const col = i % layout.cols;
-        const row = Math.floor(i / layout.cols);
-        const x = layout.offsetX + col * layout.cellW;
-        const y = layout.offsetY + row * layout.cellH;
-        const s = wallState(i, x + layout.cellW / 2);
-        // Gathered survivors leave the wall; only their dim ghost stays.
-        const isGathered = gatherOn && run!.gather!.to.has(i);
-        const alpha = isGathered ? 0.06 : gatherOn ? Math.min(s.a, 0.06) : s.a;
-        if (tiles && s.standing) {
-          ctx.beginPath();
-          ctx.roundRect(x + 4, y + 3, layout.cellW - 8, layout.cellH - 6, 6);
-          ctx.fillStyle = `rgb(${INK} / 0.05)`;
-          ctx.fill();
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = `rgb(${INK} / 0.12)`;
-          ctx.stroke();
+        const x = layout.offsetX + (i % layout.cols) * layout.cellW;
+        const y = layout.offsetY + Math.floor(i / layout.cols) * layout.cellH;
+        const cx = x + layout.cellW / 2;
+        const s = wallState(i, cx);
+        // Gathered survivors leave the wall as cards; only their slot stays.
+        // That includes a card being knocked out: it fades as a card, and
+        // must not also fade as a block back in its old slot.
+        const k = gatherOn && (s.standing || run!.lastRect.has(i)) ? 0 : s.k;
+        let glow = 0;
+        if (sheenAt !== null) {
+          glow = Math.max(0, 1 - Math.abs(cx + y * 0.6 - sheenAt) / SHEEN_PX) ** 2;
+        } else if (s.standing && sweepEdge !== null) {
+          // Survivors flash as the sweep clears them: "still in".
+          const d = sweepEdge - cx;
+          if (d >= 0 && d < SWEEP_GLOW_PX) glow = (1 - d / SWEEP_GLOW_PX) ** 2;
         }
-        const label = fit(ctx, entries[i].name, layout.cellW - 20, fontPx);
+        buf[i * 3] = k;
+        buf[i * 3 + 1] = s.drop;
+        buf[i * 3 + 2] = glow;
+        if (k >= 1) {
+          standingPath.roundRect(x + gx, y + gy, cw, ch, radius);
+          if (!flat) lipPath.rect(x + gx + radius, y + gy + 0.5, cw - radius * 2, 1);
+        } else {
+          // An empty slot stays where the name was, so the wall keeps its
+          // shape as it thins out instead of collapsing into scattered text.
+          ghostPath.roundRect(x + gx, y + gy, cw, ch, radius);
+        }
+      }
+
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = `rgb(${INK} / 0.05)`;
+      ctx.stroke(ghostPath);
+      // Navy under the tint: an uploaded background is a busy photo, and a
+      // block has to win against it for the name to be readable.
+      ctx.fillStyle = `rgb(14 18 44 / ${run ? 0.6 : 0.5})`;
+      ctx.fill(standingPath);
+      ctx.fillStyle = `rgb(${INK} / ${run ? 0.07 : 0.05})`;
+      ctx.fill(standingPath);
+      ctx.strokeStyle = `rgb(${INK} / ${run ? 0.17 : 0.13})`;
+      ctx.stroke(standingPath);
+      ctx.fillStyle = `rgb(${INK} / 0.09)`;
+      ctx.fill(lipPath);
+
+      ctx.font = `500 ${fontPx}px ${fontFamily.current}`;
+      ctx.textAlign = "center";
+      const landedOnWall = run !== null && landedAt !== null && !gatherOn;
+      const baseText = run ? 0.94 : 0.82;
+      for (let i = 0; i < n; i++) {
+        const k = buf[i * 3];
+        const drop = buf[i * 3 + 1];
+        const glow = buf[i * 3 + 2];
+        const x = layout.offsetX + (i % layout.cols) * layout.cellW;
+        const y = layout.offsetY + Math.floor(i / layout.cols) * layout.cellH;
+        const label = fit(ctx, entries[i].name, cw - 14, fontPx);
+        const tx = x + layout.cellW / 2;
+        const ty = y + layout.cellH / 2;
         // A batch too big to gather lands on the wall itself: revealed
         // winners turn gold in place.
-        const shownWinner = run !== null && landedAt !== null && !gatherOn && run.revealed.has(i);
-        ctx.fillStyle = shownWinner
-          ? `rgb(${GOLD})`
-          : run
-            ? `rgb(${INK} / ${alpha.toFixed(3)})`
-            : `rgb(209 209 214 / ${alpha.toFixed(3)})`;
-        ctx.fillText(label, x + 10, y + layout.cellH / 2 + s.drop);
+        if (landedOnWall && run!.revealed.has(i)) {
+          ctx.beginPath();
+          ctx.roundRect(x + gx, y + gy, cw, ch, radius);
+          ctx.fillStyle = `rgb(${GOLD} / 0.12)`;
+          ctx.fill();
+          ctx.strokeStyle = `rgb(${GOLD} / 0.75)`;
+          ctx.stroke();
+          ctx.fillStyle = `rgb(${GOLD})`;
+          ctx.fillText(label, tx, ty);
+          continue;
+        }
+        if (k >= 1) {
+          if (glow > 0.03) {
+            ctx.beginPath();
+            ctx.roundRect(x + gx, y + gy, cw, ch, radius);
+            ctx.fillStyle = `rgb(${INK} / ${(glow * 0.1).toFixed(3)})`;
+            ctx.fill();
+            ctx.strokeStyle = `rgb(${INK} / ${(glow * 0.5).toFixed(3)})`;
+            ctx.stroke();
+          }
+          ctx.fillStyle = `rgb(${INK} / ${Math.min(1, baseText + glow * 0.18).toFixed(3)})`;
+          ctx.fillText(label, tx, ty);
+        } else if (k > 0.004) {
+          // Knocked out: the block falls out of its slot as it fades.
+          ctx.beginPath();
+          ctx.roundRect(x + gx, y + gy + drop, cw, ch, radius);
+          ctx.fillStyle = `rgb(14 18 44 / ${(k * 0.6).toFixed(3)})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgb(${INK} / ${(k * 0.17).toFixed(3)})`;
+          ctx.stroke();
+          ctx.fillStyle = `rgb(${INK} / ${Math.max(0.07, k * 0.94).toFixed(3)})`;
+          ctx.fillText(label, tx, ty + drop);
+        } else {
+          ctx.fillStyle = `rgb(${INK} / 0.07)`;
+          ctx.fillText(label, tx, ty);
+        }
       }
+      ctx.textAlign = "start";
     } else {
       const r = Math.max(1.5, Math.min(4, Math.min(layout.cellW, layout.cellH) * 0.18));
       for (let i = 0; i < n; i++) {
@@ -470,6 +574,12 @@ export function NameWall({
       const k = rm ? 1 : Math.min(1, (now - g.t0) / GATHER_MS);
       if (k < 1) moving = true;
       const e = ease(k);
+      // The beam and the shadows are the first things to go: no beam under
+      // reduced motion, neither at minimal quality.
+      const fx = {
+        beam: rm || q === "minimal" ? null : (now % BEAM_MS) / BEAM_MS,
+        flat: q === "minimal",
+      };
 
       // Cards knocked out of the gathered layout fall away where they were.
       const leaving: number[] = [];
@@ -485,7 +595,7 @@ export function NameWall({
           return;
         }
         moving = true;
-        drawCard(ctx, entries[i].name, { ...rect, y: rect.y + (rm ? 0 : ease(t) * DROP_PX * 2) }, 1 - ease(t), "out");
+        drawCard(ctx, entries[i].name, { ...rect, y: rect.y + (rm ? 0 : ease(t) * DROP_PX * 2) }, 1 - ease(t), "out", fx);
       });
 
       // The spotlit card is drawn last, so its lift is never under a neighbour.
@@ -518,12 +628,17 @@ export function NameWall({
             h: rect.h * s,
           };
         }
+        // A single winner's name is carried by the overlay; the card under it
+        // bows out as the overlay rises, or its border and glow frame the name
+        // from behind like a second, smaller box.
+        const soloLanded = landedAt !== null && run.winners.length === 1;
         drawCard(
           ctx,
           entries[i].name,
           rect,
-          Math.min(1, 0.35 + e),
+          soloLanded ? 1 - e : Math.min(1, 0.35 + e),
           isLit ? "win" : shown ? "won" : finalPair ? "pair" : "in",
+          fx,
         );
       }
     }
@@ -557,8 +672,10 @@ export function NameWall({
     rect: Rect,
     alpha: number,
     kind: "in" | "pair" | "win" | "won" | "out",
+    /** `beam`: 0–1 round the border, or null when motion is off. `flat`: minimal quality. */
+    fx: { beam: number | null; flat: boolean },
   ) {
-    const radius = Math.min(14, rect.h * 0.22);
+    const radius = Math.min(16, rect.h * 0.22);
     const gold = kind === "win" || kind === "won";
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
@@ -567,20 +684,37 @@ export function NameWall({
       // without the glow, so only one card ever reads as "now".
       ctx.shadowColor = `rgb(${GOLD} / 0.45)`;
       ctx.shadowBlur = rect.h * 0.4;
+    } else if (!fx.flat && kind !== "out") {
+      // Lifted off the wall: a soft navy shadow, never black (see .stage-bg).
+      ctx.shadowColor = "rgb(6 8 24 / 0.55)";
+      ctx.shadowBlur = rect.h * 0.3;
+      ctx.shadowOffsetY = rect.h * 0.08;
     }
     ctx.beginPath();
     ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);
-    ctx.fillStyle =
+    // Opaque: a translucent card let the wall's names show through. Lit from
+    // above — lighter at the top edge — so a card reads as a surface, not a
+    // flat rectangle.
+    const [top, bottom] =
       kind === "win"
-        ? "rgb(46 40 30 / 0.97)"
+        ? ["62 52 32", "40 34 26"]
         : kind === "won"
-          ? // Opaque: a translucent card let the wall's names show through.
-            "rgb(36 33 30 / 0.97)"
+          ? ["48 42 32", "34 30 28"]
           : kind === "pair"
-            ? "rgb(32 33 38 / 0.96)"
-            : "rgb(24 25 29 / 0.94)";
+            ? ["50 54 88", "30 33 62"]
+            : ["38 42 72", "24 27 54"];
+    if (fx.flat) {
+      ctx.fillStyle = `rgb(${bottom} / 0.97)`;
+    } else {
+      const face = ctx.createLinearGradient(0, rect.y, 0, rect.y + rect.h);
+      face.addColorStop(0, `rgb(${top} / 0.97)`);
+      face.addColorStop(1, `rgb(${bottom} / 0.97)`);
+      ctx.fillStyle = face;
+    }
     ctx.fill();
+    ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
     ctx.lineWidth = kind === "pair" || gold ? 1.5 : 1;
     ctx.strokeStyle =
       kind === "win"
@@ -588,9 +722,33 @@ export function NameWall({
         : kind === "won"
           ? `rgb(${GOLD} / 0.45)`
           : kind === "pair"
-            ? `rgb(${INK} / 0.5)`
-            : `rgb(${INK} / 0.14)`;
+            ? `rgb(${INK} / 0.34)`
+            : `rgb(${INK} / 0.16)`;
     ctx.stroke();
+    if (!fx.flat) {
+      // The lit top edge.
+      ctx.fillStyle = gold ? `rgb(${GOLD} / 0.22)` : `rgb(${INK} / 0.14)`;
+      ctx.fillRect(rect.x + radius, rect.y + 1, rect.w - radius * 2, 1);
+    }
+    if (fx.beam !== null && kind === "pair") {
+      // A light running round the border of each card in the face-off (the
+      // Magic UI border beam, painted). Neutral white: nobody has won yet, and
+      // both cards carry it, so it singles out neither.
+      const perimeter = 2 * (rect.w + rect.h) - (8 - 2 * Math.PI) * radius;
+      ctx.beginPath();
+      ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);
+      ctx.setLineDash([perimeter * 0.16, perimeter * 0.84]);
+      ctx.lineDashOffset = -fx.beam * perimeter;
+      ctx.lineCap = "round";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = `rgb(${INK} / 0.7)`;
+      ctx.shadowBlur = 10;
+      ctx.strokeStyle = `rgb(${INK} / 0.95)`;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+    }
     const px = cardFont(name, rect);
     ctx.font = `600 ${px}px ${fontFamily.current}`;
     ctx.textAlign = "center";
@@ -757,52 +915,20 @@ export function NameWall({
   const [winnerBox, winnerPx] = useFittedSize(winnerName, { maxLines: 2, maxVh: 15, maxPx: 144, minPx: 36, weight: 700 });
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-[2.2vh]">
-      <div
-        role="status"
-        className="flex h-[6vh] min-h-12 shrink-0 items-baseline gap-4"
-      >
-        <span
-          className={`text-[min(5.2vh,3.5rem)] leading-none font-semibold tracking-tight tabular-nums ${
-            hud.landed ? "text-gold-bright" : "text-ink-100"
-          }`}
-        >
-          {hud.landed ? hud.winners : hud.alive}
-        </span>
-        <span className="text-[min(2.4vh,1.6rem)] text-ink-500">
-          {hud.landed
-            ? `${hud.winners === 1 ? "winner" : "winners"}, from ${hud.total} in the draw`
-            : hud.rounds > 0
-              ? hud.finalNext
-                ? "left — one more round"
-                : hud.winners > 1
-                  ? `still in · ${hud.winners} will win`
-                  : "still in"
-              : "in the draw"}
-        </span>
-        {hud.rounds > 0 && !hud.landed ? (
-          <span className="ml-auto flex items-center gap-3 text-[min(1.8vh,1.15rem)] text-ink-500">
-            Round{" "}
-            <span className="text-ink-100 tabular-nums">
-              {hud.round} of {hud.rounds}
-            </span>
-            <span aria-hidden className="flex gap-1.5">
-              {Array.from({ length: hud.rounds }, (_, i) => (
-                <span
-                  key={i}
-                  className={`h-[3px] w-[1.1vw] rounded-full ${
-                    i + 1 < hud.round
-                      ? "bg-ink-100"
-                      : i + 1 === hud.round
-                        ? "bg-gold-bright"
-                        : "bg-ink-100/15"
-                  }`}
-                />
-              ))}
-            </span>
-          </span>
-        ) : null}
-      </div>
+    <div className="flex h-full min-h-0 w-full flex-col">
+      {/* The wall has the whole screen. A count line used to sit above it
+          ("249 still in", "1 winner, from 249 in the draw"); on the projector
+          it read as a page title over the one thing the room is watching, and
+          it cost the names a row. The wall thinning out is the count. What is
+          left is for screen readers, and changes once a round, not once a
+          name. */}
+      <p role="status" className="sr-only">
+        {hud.landed
+          ? `${hud.winners} ${hud.winners === 1 ? "winner" : "winners"}, from ${hud.total} in the draw`
+          : hud.rounds > 0
+            ? `Round ${hud.round} of ${hud.rounds}`
+            : `${hud.total} in the draw`}
+      </p>
 
       <div ref={boxRef} className="relative min-h-0 flex-1">
         <canvas

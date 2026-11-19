@@ -20,10 +20,31 @@ describe("layoutGems", () => {
 
   it("honours a custom keep-out, placing fewer gems rather than covering names", () => {
     for (const seed of SEEDS) {
-      const { gems, sparks } = layoutGems(seed, WALL_KEEP_OUT);
+      const { gems, sparks } = layoutGems(seed, WALL_KEEP_OUT, undefined, true);
       expect(gems.length).toBeGreaterThan(0);
       for (const g of gems) expect(inKeepOut(g.x + g.size / 2, g.y + g.size / 2, WALL_KEEP_OUT)).toBe(false);
       for (const s of sparks) expect(inKeepOut(s.x, s.y, WALL_KEEP_OUT)).toBe(false);
+    }
+  });
+
+  it("spreads the wall's gems round the frame instead of heaping them in one corner", () => {
+    // The wall's first keep-out left only the rail's lower half free, and every
+    // gem landed there, over the winners' names.
+    for (const seed of [...SEEDS, "stage-wall"]) {
+      const { gems } = layoutGems(seed, WALL_KEEP_OUT, undefined, true);
+      expect(gems.length).toBeGreaterThanOrEqual(5);
+      const cx = gems.map((g) => g.x + g.size / 2);
+      const cy = gems.map((g) => g.y + g.size / 2);
+      for (let i = 0; i < gems.length; i++) {
+        expect(inKeepOut(cx[i], cy[i], WALL_KEEP_OUT)).toBe(false);
+        // Half off-screen at most: the centre stays inside the frame.
+        expect(cx[i]).toBeGreaterThan(0);
+        expect(cx[i]).toBeLessThan(REF_W);
+        expect(cy[i]).toBeGreaterThan(0);
+        expect(cy[i]).toBeLessThan(REF_H);
+      }
+      expect(cx.some((x) => x < REF_W / 2)).toBe(true);
+      expect(cx.some((x) => x > REF_W / 2)).toBe(true);
     }
   });
 

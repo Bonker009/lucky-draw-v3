@@ -31,13 +31,19 @@ export const KEEP_OUT: KeepOut = [{ x0: 380, x1: 1540, y0: -1, y1: 880 }];
 
 /**
  * The name wall is not a centred block: its columns run from the left edge
- * to the winners rail, count line included, and the rail's heading and
- * newest winners sit at its top. Gems go down the rail's lower half.
+ * to the winners rail, count line included. There is no free region to put
+ * gems in, so they sit on the frame instead — centred within a few px of an
+ * edge and half off-screen (`bleed` in `layoutGems`), peeking in all the way
+ * round.
+ *
+ * The first version of this left only the rail's lower half free. Every gem
+ * landed there, in one heap, on top of the winners' names once the rail
+ * filled up.
+ *
+ * Kept clear: everything inside the frame. A gem on the edge sits behind the
+ * outermost blocks, which are opaque enough to keep their names readable.
  */
-export const WALL_KEEP_OUT: KeepOut = [
-  { x0: -1, x1: 1560, y0: 30, y1: 1100 },
-  { x0: 1540, x1: 1921, y0: -1, y1: 340 },
-];
+export const WALL_KEEP_OUT: KeepOut = [{ x0: 60, x1: 1880, y0: 50, y1: 1040 }];
 
 export const GEM_KINDS = [
   "hero",
@@ -105,7 +111,16 @@ export function inKeepOut(cx: number, cy: number, k: KeepOut = KEEP_OUT) {
  * Gems that find no free spot outside the keep-out are left out rather than
  * forced over the names, so a large keep-out simply means fewer gems.
  */
-export function layoutGems(seed: string, keepOut: KeepOut = KEEP_OUT, sparkCount = SPARKS) {
+export function layoutGems(
+  seed: string,
+  keepOut: KeepOut = KEEP_OUT,
+  sparkCount = SPARKS,
+  /**
+   * Let a gem hang up to half off-screen, so its centre can sit on the very
+   * edge of the frame. For keep-outs that leave only the edges free.
+   */
+  bleed = false,
+) {
   const rand = prng(seed);
   const between = (a: number, b: number) => a + rand() * (b - a);
 
@@ -120,9 +135,11 @@ export function layoutGems(seed: string, keepOut: KeepOut = KEEP_OUT, sparkCount
   const gems: PlacedGem[] = [];
   SIZES.forEach((size, i) => {
     const kind = order[i] ?? GEM_KINDS[Math.floor(rand() * GEM_KINDS.length)];
-    for (let tries = 0; tries < 80; tries++) {
-      const x = between(10, REF_W - size - 10);
-      const y = between(10, REF_H - size - 10);
+    // An edge-only keep-out leaves a thin band to hit, so it gets more tries.
+    const inset = bleed ? -size * 0.45 : 10;
+    for (let tries = 0; tries < (bleed ? 400 : 80); tries++) {
+      const x = between(inset, REF_W - size - inset);
+      const y = between(inset, REF_H - size - inset);
       const cx = x + size / 2;
       const cy = y + size / 2;
       if (inKeepOut(cx, cy, keepOut)) continue;

@@ -448,6 +448,7 @@ export default function StagePage() {
         seed={rosterScope ? "photo" : prizeShow ? "prize" : `stage-${drawStyle}`}
         strength={rosterScope ? 0.6 : 0.4}
         keepOut={!rosterScope && drawStyle === "wall" ? WALL_KEEP_OUT : undefined}
+        bleed={!rosterScope && drawStyle === "wall"}
         quality={quality}
       />
       <Confetti ref={confettiRef} quality={quality} />
@@ -525,7 +526,14 @@ export default function StagePage() {
         className={rosterScope || shownPrize ? "hidden" : "relative z-20 flex min-h-0"}
         aria-hidden={Boolean(rosterScope || shownPrize)}
       >
-        <div className="relative flex min-h-0 flex-1 flex-col px-[3.3vw] pb-[5vh] pt-[7vh]">
+        {/* The wall runs almost to the edges: it is the whole show, and every
+            row it gains is a larger name. The other styles are centred pieces
+            and keep their margins. */}
+        <div
+          className={`relative flex min-h-0 flex-1 flex-col ${
+            drawStyle === "wall" ? "px-[1.4vw] py-[2.2vh]" : "px-[3.3vw] pb-[5vh] pt-[7vh]"
+          }`}
+        >
           {/* A scrim local to the centre column. An uploaded background is
               usually a busy photo, and without this the names compete with it
               exactly where they most need to win. */}

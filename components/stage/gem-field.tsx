@@ -84,6 +84,7 @@ export function GemField({
   seed,
   strength = 0.5,
   keepOut = KEEP_OUT,
+  bleed = false,
   quality,
 }: {
   seed: string;
@@ -91,9 +92,11 @@ export function GemField({
   strength?: number;
   /** Where no gem may sit, in the 1920×1080 reference frame. */
   keepOut?: KeepOut;
+  /** Gems may hang half off-screen — for a keep-out that leaves only the edges. */
+  bleed?: boolean;
   quality: Quality;
 }) {
-  const layout = useMemo(() => layoutGems(seed, keepOut), [seed, keepOut]);
+  const layout = useMemo(() => layoutGems(seed, keepOut, undefined, bleed), [seed, keepOut, bleed]);
   if (quality === "minimal") return null;
   const rich = quality === "full";
   const sparks = rich ? layout.sparks : layout.sparks.filter((_, i) => i % 2 === 0);
